@@ -67,8 +67,19 @@ private def validateRequest (request : GenerateRequest) : IO Unit := do
       s!"Unsupported schemaVersion {request.schemaVersion}; expected {contractVersion}."
   if request.problems.isEmpty then
     throw <| IO.userError "The request must contain at least one problem."
+  if request.contextRoot.isEmpty then
+    throw <| IO.userError "contextRoot must be non-empty."
+  if request.leanToolchain.isEmpty then
+    throw <| IO.userError "leanToolchain must be non-empty."
   if request.mathlib.name != "mathlib" then
     throw <| IO.userError "The dependency pin must be named `mathlib`."
+  if request.mathlib.git.isEmpty || request.mathlib.rev.isEmpty then
+    throw <| IO.userError "The mathlib git and rev pins must be non-empty."
+  let mut problemIds : Array String := #[]
+  for problem in request.problems do
+    if problemIds.contains problem.id then
+      throw <| IO.userError s!"Duplicate problem id `{problem.id}`."
+    problemIds := problemIds.push problem.id
 
 private def sha256 (content : String) : IO String := do
   let out ← IO.Process.output {
@@ -114,6 +125,12 @@ private def extracted (hole : ResolvedHole) : LeanEvalGenerator.Core.ExtractedTh
 private def validateProblem (root : System.FilePath) (problem : ProblemInput) : IO Unit := do
   if problem.id.isEmpty then
     throw <| IO.userError "Problem id must be non-empty."
+  if problem.title.isEmpty then
+    throw <| IO.userError s!"Problem `{problem.id}` title must be non-empty."
+  if problem.moduleName.isEmpty then
+    throw <| IO.userError s!"Problem `{problem.id}` moduleName must be non-empty."
+  if problem.submitter.isEmpty then
+    throw <| IO.userError s!"Problem `{problem.id}` submitter must be non-empty."
   unless LeanEvalGenerator.Core.allowedProblemGroups.contains problem.group do
     throw <| IO.userError s!"Problem `{problem.id}` has an unsupported group."
   unless LeanEvalGenerator.Core.allowedProblemStatuses.contains problem.status do
@@ -122,8 +139,15 @@ private def validateProblem (root : System.FilePath) (problem : ProblemInput) : 
     throw <| IO.userError s!"Problem `{problem.id}` statementRevision must be positive."
   if problem.tags.any String.isEmpty then
     throw <| IO.userError s!"Problem `{problem.id}` tags must be non-empty strings."
+  let mut seenTags : Array String := #[]
+  for tag in problem.tags do
+    if seenTags.contains tag then
+      throw <| IO.userError s!"Problem `{problem.id}` has duplicate tag `{tag}`."
+    seenTags := seenTags.push tag
   if problem.holes.isEmpty then
     throw <| IO.userError s!"Problem `{problem.id}` must contain at least one hole."
+  if problem.holes.any String.isEmpty then
+    throw <| IO.userError s!"Problem `{problem.id}` holes must be non-empty strings."
   if problem.holes.size != problem.resolvedHoles.size then
     throw <| IO.userError <|
       s!"Problem `{problem.id}` has {problem.holes.size} manifest holes but " ++
@@ -134,6 +158,12 @@ private def validateProblem (root : System.FilePath) (problem : ProblemInput) : 
     throw <| IO.userError
       s!"Problem `{problem.id}` moduleContent does not match {sourcePath}."
   for hole in problem.resolvedHoles do
+    if hole.declarationName.isEmpty || hole.module.isEmpty then
+      throw <| IO.userError s!"Problem `{problem.id}` has empty resolved-hole metadata."
+    if hole.startLine == 0 || hole.endLine == 0 then
+      throw <| IO.userError s!"Problem `{problem.id}` resolved-hole lines must be positive."
+    unless #["theorem", "def", "instance"].contains hole.kind do
+      throw <| IO.userError s!"Problem `{problem.id}` has an unsupported resolved-hole kind."
     if hole.module != problem.moduleName then
       throw <| IO.userError <|
         s!"Resolved hole `{hole.declarationName}` belongs to module `{hole.module}`, " ++
