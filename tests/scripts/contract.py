@@ -102,6 +102,26 @@ def main() -> int:
     duplicate_ids["problems"] = [first, problem()]
     assert_rejected(duplicate_ids, "Duplicate problem id `fixture`")
 
+    unknown_field = request_with(problem())
+    unknown_field["unexpected"] = True
+    assert_rejected(unknown_field, "request contains an unknown field")
+
+    nested_unknown = request_with(problem())
+    nested_unknown["problems"][0]["unexpected"] = True
+    assert_rejected(nested_unknown, "problem contains an unknown field")
+
+    mathlib_unknown = request_with(problem())
+    mathlib_unknown["mathlib"]["unexpected"] = True
+    assert_rejected(mathlib_unknown, "mathlib contains an unknown field")
+
+    template_unknown = request_with(problem())
+    template_unknown["templates"]["unexpected"] = True
+    assert_rejected(template_unknown, "templates contains an unknown field")
+
+    hole_unknown = request_with(problem())
+    hole_unknown["problems"][0]["resolvedHoles"][0]["unexpected"] = True
+    assert_rejected(hole_unknown, "resolvedHole contains an unknown field")
+
     print("PASS malformed, version, and schema-invariant errors stay off stdout")
     return 0
 

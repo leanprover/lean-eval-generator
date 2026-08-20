@@ -209,7 +209,37 @@ def render (request : GenerateRequest) : IO String := do
   ]
   return LeanEvalGenerator.Core.OJson.pretty response ++ "\n"
 
-def parseRequest (payload : String) : Except String GenerateRequest :=
-  Json.parse payload >>= fromJson?
+private def ensureKnownFields (label : String) (allowed : Array String)
+    (value : Json) : Except String Unit := do
+  let object ← value.getObj?
+  unless object.all fun key _ => allowed.contains key do
+    throw s!"{label} contains an unknown field"
+
+private def validateJsonShape (value : Json) : Except String Unit := do
+  ensureKnownFields "request" #[
+    "schemaVersion", "contextRoot", "leanToolchain", "mathlib", "templates", "problems"
+  ] value
+  let mathlib ← value.getObjVal? "mathlib"
+  ensureKnownFields "mathlib" #["name", "git", "rev"] mathlib
+  let templates ← value.getObjVal? "templates"
+  ensureKnownFields "templates" #["workspaceTest"] templates
+  let problems ← (← value.getObjVal? "problems").getArr?
+  for problem in problems do
+    ensureKnownFields "problem" #[
+      "id", "title", "group", "status", "visible", "statementRevision", "tags",
+      "moduleName", "holes", "submitter", "notes", "source", "informalSolution",
+      "moduleContent", "resolvedHoles"
+    ] problem
+    let holes ← (← problem.getObjVal? "resolvedHoles").getArr?
+    for hole in holes do
+      ensureKnownFields "resolvedHole" #[
+        "declarationName", "module", "startLine", "startColumn", "endLine", "endColumn",
+        "explicitParameters", "sameModuleDependencies", "holeDependentDependencies", "kind"
+      ] hole
+
+def parseRequest (payload : String) : Except String GenerateRequest := do
+  let value ← Json.parse payload
+  validateJsonShape value
+  fromJson? value
 
 end LeanEvalGenerator
