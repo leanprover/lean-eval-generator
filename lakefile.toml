@@ -1,0 +1,12 @@
+name = "lean-eval-generator"
+defaultTargets = ["lean-eval-generator"]
+
+[leanOptions]
+autoImplicit = false
+
+[[lean_lib]]
+name = "LeanEvalGenerator"
+
+[[lean_exe]]
+name = "lean-eval-generator"
+root = "LeanEvalGenerator.Main"

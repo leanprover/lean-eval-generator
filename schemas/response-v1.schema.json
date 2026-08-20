@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://leanprover.github.io/lean-eval-generator/response-v1.schema.json",
+  "title": "LeanEval generator response v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "files"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["problemId", "path", "sha256", "content"],
+        "properties": {
+          "problemId": { "type": "string", "minLength": 1 },
+          "path": { "type": "string", "minLength": 1 },
+          "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "content": { "type": "string" }
+        }
+      }
+    }
+  }
+}
+
