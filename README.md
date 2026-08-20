@@ -15,7 +15,7 @@ The normative wire shapes are in `schemas/request-v1.schema.json` and
 Run the representative theorem- and definition-hole golden tests with:
 
 ```sh
-tests/scripts/golden.py /path/to/lean-eval
+python3 tests/scripts/golden.py /path/to/lean-eval
 python3 tests/scripts/contract.py
 ```
 
