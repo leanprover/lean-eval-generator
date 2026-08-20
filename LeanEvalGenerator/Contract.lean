@@ -37,7 +37,11 @@ necessary in v1 for trusted helper modules and `.ilean` declaration spans. -/
 structure ProblemInput where
   id : String
   title : String
-  test : Bool
+  group : String
+  status : String
+  visible : Bool
+  statementRevision : Nat
+  tags : Array String
   moduleName : String
   holes : Array String
   submitter : String
@@ -81,7 +85,11 @@ private def sha256 (content : String) : IO String := do
 private def metadata (problem : ProblemInput) : LeanEvalGenerator.Core.EvalProblemMetadata := {
   id := problem.id
   title := problem.title
-  test := problem.test
+  group := problem.group
+  status := problem.status
+  visible := problem.visible
+  statementRevision := problem.statementRevision
+  tags := problem.tags
   moduleName := problem.moduleName
   holes := problem.holes
   submitter := problem.submitter
@@ -106,6 +114,14 @@ private def extracted (hole : ResolvedHole) : LeanEvalGenerator.Core.ExtractedTh
 private def validateProblem (root : System.FilePath) (problem : ProblemInput) : IO Unit := do
   if problem.id.isEmpty then
     throw <| IO.userError "Problem id must be non-empty."
+  unless LeanEvalGenerator.Core.allowedProblemGroups.contains problem.group do
+    throw <| IO.userError s!"Problem `{problem.id}` has an unsupported group."
+  unless LeanEvalGenerator.Core.allowedProblemStatuses.contains problem.status do
+    throw <| IO.userError s!"Problem `{problem.id}` has an unsupported status."
+  if problem.statementRevision == 0 then
+    throw <| IO.userError s!"Problem `{problem.id}` statementRevision must be positive."
+  if problem.tags.any String.isEmpty then
+    throw <| IO.userError s!"Problem `{problem.id}` tags must be non-empty strings."
   if problem.holes.isEmpty then
     throw <| IO.userError s!"Problem `{problem.id}` must contain at least one hole."
   if problem.holes.size != problem.resolvedHoles.size then

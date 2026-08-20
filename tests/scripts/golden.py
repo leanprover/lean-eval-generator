@@ -74,7 +74,11 @@ def prepare_request(root: Path) -> dict[str, object]:
             {
                 "id": manifest["id"],
                 "title": manifest["title"],
-                "test": manifest["test"],
+                "group": manifest["group"],
+                "status": manifest["status"],
+                "visible": manifest["visible"],
+                "statementRevision": manifest["statement_revision"],
+                "tags": manifest["tags"],
                 "moduleName": module,
                 "holes": manifest["holes"],
                 "submitter": manifest["submitter"],

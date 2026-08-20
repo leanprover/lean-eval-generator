@@ -42,6 +42,7 @@
     },
     "resolvedHole": {
       "type": "object",
+      "additionalProperties": false,
       "required": [
         "declarationName",
         "module",
@@ -75,10 +76,15 @@
     },
     "problem": {
       "type": "object",
+      "additionalProperties": false,
       "required": [
         "id",
         "title",
-        "test",
+        "group",
+        "status",
+        "visible",
+        "statementRevision",
+        "tags",
         "moduleName",
         "holes",
         "submitter",
@@ -88,7 +94,17 @@
       "properties": {
         "id": { "type": "string", "minLength": 1 },
         "title": { "type": "string", "minLength": 1 },
-        "test": { "type": "boolean" },
+        "group": {
+          "enum": ["formalization-evaluation", "software-verification", "open-conjectures"]
+        },
+        "status": { "enum": ["draft", "active", "archived"] },
+        "visible": { "type": "boolean" },
+        "statementRevision": { "type": "integer", "minimum": 1 },
+        "tags": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
         "moduleName": { "type": "string", "minLength": 1 },
         "holes": {
           "type": "array",
@@ -109,4 +125,3 @@
     }
   }
 }
-
