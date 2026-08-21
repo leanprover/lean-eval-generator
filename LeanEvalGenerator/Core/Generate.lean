@@ -1244,10 +1244,12 @@ def isScopedOpenLine (stripped : String) : Bool := Id.run do
     if toks[i]! == "in" then return true
   return false
 
-/-- True if `block` is the single-command `<command> … in` form, which binds to
-the declaration following it rather than to the rest of the enclosing section. -/
+/-- True if `block` contains the single-command `<command> … in <declaration>`
+form, which binds to one declaration rather than to the rest of the enclosing
+section. The declaration may begin on the same line as `in` or on a following
+line. -/
 def isScopedCommandBlock (block : String) : Bool :=
-  (commandTokens block).back? == some "in"
+  (commandTokens block).contains "in"
 
 /-- True if the upcoming lines starting at `peekIdx` (0-indexed) form the
 continuation of a scoped `open … in` — that is, after any blank or
