@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Small dependency-free checks for the CLI transport contract."""
 
 from __future__ import annotations
@@ -9,7 +8,6 @@ import tempfile
 from pathlib import Path
 
 from golden import module_path as golden_module_path
-
 
 ROOT = Path(__file__).resolve().parents[2]
 CLI = ROOT / ".lake/build/bin/lean-eval-generator"
