@@ -10,3 +10,7 @@ name = "LeanEvalGenerator"
 [[lean_exe]]
 name = "lean-eval-generator"
 root = "LeanEvalGenerator.Main"
+
+[[lean_exe]]
+name = "test_module_paths"
+root = "Tests.ModulePaths"

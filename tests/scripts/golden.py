@@ -35,8 +35,30 @@ def run(command: list[str], *, cwd: Path, stdin: str | None = None) -> str:
     return result.stdout
 
 
+def module_components(module: str) -> list[str]:
+    """Mirror Lean quoted-component semantics for fixture source paths."""
+    parts: list[str] = []
+    current: list[str] = []
+    quoted = False
+    for character in module:
+        if quoted:
+            if character == "»":
+                quoted = False
+            else:
+                current.append(character)
+        elif character == "«":
+            quoted = True
+        elif character == ".":
+            parts.append("".join(current))
+            current = []
+        else:
+            current.append(character)
+    parts.append("".join(current))
+    return parts
+
+
 def module_path(root: Path, module: str) -> Path:
-    return root.joinpath(*module.split(".")).with_suffix(".lean")
+    return root.joinpath(*module_components(module)).with_suffix(".lean")
 
 
 def mathlib_pin(root: Path) -> dict[str, str]:

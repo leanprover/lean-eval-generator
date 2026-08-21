@@ -191,14 +191,14 @@ def extractOne (root : System.FilePath) (entry : EvalProblemMetadata) (hole : St
 /-! ## Source paths -/
 
 def moduleSourcePath (root : System.FilePath) (moduleName : String) : System.FilePath := Id.run do
-  let parts := moduleName.splitOn "."
+  let parts := splitNameComponents moduleName
   let mut path := root
   for p in parts do
     path := path / p
   return path.addExtension "lean"
 
 def ileanPath (root : System.FilePath) (moduleName : String) : System.FilePath := Id.run do
-  let parts := moduleName.splitOn "."
+  let parts := splitNameComponents moduleName
   let mut path := root / ".lake" / "build" / "lib" / "lean"
   for p in parts do
     path := path / p
@@ -1490,8 +1490,8 @@ def containsIdentifier (haystack needle : String) : Bool := Id.run do
   return false
 
 def lastComponentStr (name : String) : String :=
-  match (name.splitOn ".").getLast? with
-  | some s => s
+  match (splitNameComponents name).back? with
+  | some s => renderNameComponents #[s]
   | none => name
 
 /-- Find the first occurrence of `theorem <name>` (with word boundaries) at or
@@ -2677,10 +2677,10 @@ def derivedHelperOpens (helperNames : Std.HashSet String) : Array String := Id.r
   let mut opens : Array String := #[]
   let mut seen : Std.HashSet String := {}
   for name in helperNames.toList.mergeSort do
-    let parts := name.splitOn "."
-    if parts.length ≤ 1 then continue
-    for count in [1:parts.length] do
-      let prefix' := ".".intercalate (parts.take count)
+    let parts := splitNameComponents name
+    if parts.size ≤ 1 then continue
+    for count in [1:parts.size] do
+      let prefix' := renderNameComponents (parts.extract 0 count)
       if seen.contains prefix' then continue
       opens := opens.push s!"_root_.{prefix'}"
       seen := seen.insert prefix'
@@ -3001,9 +3001,9 @@ private def renderWorkspaceMultiHole (root : System.FilePath) (entry : EvalProbl
     -- `Foo.bar.baz` from being silently accepted because some unrelated
     -- `Foo` happens to be declared in the same module.
     let hasKeptHelperParent : String → Bool := fun n =>
-      let parts := n.splitOn "."
-      (List.range (parts.length - 1)).any fun i =>
-        let p := ".".intercalate (parts.take (i + 1))
+      let parts := splitNameComponents n
+      (List.range (parts.size - 1)).any fun i =>
+        let p := renderNameComponents (parts.extract 0 (i + 1))
         helperNames.contains p && declNameSet.contains p
     -- A helper with no `.ilean` span of its own was never written down: it is an
     -- auto-generated companion of a declaration that *was*. `deriving` emits its

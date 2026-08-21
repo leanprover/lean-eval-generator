@@ -1,6 +1,7 @@
 import Lake.Toml
 import Lake.Util.Message
 import Lean
+import LeanEvalGenerator.Core.Names
 
 open Lean
 open Lean.Parser
@@ -41,7 +42,7 @@ components, so `LeanEval.Foo.Bar` is `LeanEval/Foo/Bar.lean` and never
 `LeanEval/Foo.Bar.lean`. The inventory and extractor executables resolve the
 same field the same way; the two must agree or they address different files. -/
 def parseModuleName (text : String) : Name :=
-  text.splitOn "." |>.foldl Name.str .anonymous
+  parseHierarchicalName text
 
 /-- Walk up from `dir` searching for the manifest directory
 `manifests/problems/`. Returns the directory itself if found. -/
