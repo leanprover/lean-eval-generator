@@ -55,4 +55,16 @@ def main : IO Unit := do
       isLocalSyntaxContextDeclaration)
     "local notation \"A\" => Nat\n\n"
 
+  let markerFixtureRoot : System.FilePath := "/tmp/lean-eval-generator-marker-wrapper-test"
+  IO.FS.createDirAll (markerFixtureRoot / "EvalTools")
+  IO.FS.createDirAll (markerFixtureRoot / "LeanEval")
+  IO.FS.writeFile (markerFixtureRoot / "EvalTools" / "Markers.lean")
+    ("import Lake.Toml\nimport Lake.Util.Message\nimport Lean\n" ++
+      "import LeanEvalGenerator.Core.Markers\n")
+  IO.FS.writeFile (markerFixtureRoot / "LeanEval" / "Fixture.lean")
+    "import EvalTools.Markers\n"
+  expectEq "marker wrapper preserves only the trusted environment"
+    (← problemImportHeader markerFixtureRoot "LeanEval.Fixture")
+    "import Lake.Toml\nimport Lake.Util.Message\nimport Lean\n"
+
   IO.println "PASS active set_option context is preserved without scoped-option leakage"

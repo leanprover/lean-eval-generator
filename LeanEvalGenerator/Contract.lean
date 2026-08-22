@@ -33,7 +33,7 @@ structure ResolvedHole where
   deriving FromJson, Inhabited
 
 /-- All problem-specific data supplied to the renderer. `contextRoot` remains
-necessary in v1 for trusted helper modules and `.ilean` declaration spans. -/
+necessary in schema version 1 for trusted helper modules and `.ilean` declaration spans. -/
 structure ProblemInput where
   id : String
   title : String
