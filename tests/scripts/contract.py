@@ -69,6 +69,11 @@ def assert_rejected(payload: dict[str, object], message: str) -> None:
 
 def main() -> int:
     subprocess.run(["lake", "build"], cwd=ROOT, check=True)
+    subprocess.run(
+        ["lake", "env", "lean", "--run", "tests/Context.lean"],
+        cwd=ROOT,
+        check=True,
+    )
     malformed = invoke("not json")
     assert malformed.returncode == 1
     assert malformed.stdout == ""
