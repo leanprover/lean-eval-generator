@@ -1209,8 +1209,9 @@ order Lean itself would discover the modules in — emitting all local modules'
 imports before the problem's own would put them in the wrong order, which can
 matter for instance priority and other environment-extension state.
 
-`EvalTools.Markers` itself is dropped: it supplies the `@[eval_problem]`
-attribute, which a standalone workspace neither has nor needs. Its external
+`EvalTools.Markers` and `LeanEvalGenerator.Core.Markers` are dropped: they
+supply the `@[eval_problem]` attribute, which a standalone workspace neither
+has nor needs. Their external
 imports are retained, however, because they are part of the environment in
 which the problem module elaborated. Any *other* `EvalTools` import is refused
 rather than silently dropped, since it would be carrying a real definition
@@ -1220,6 +1221,12 @@ private partial def collectWorkspaceImports (root : System.FilePath) (moduleName
   let path := moduleSourcePath root moduleName
   if !(← path.pathExists) then return
   for imported in (← sourceImports (← IO.FS.readFile path) moduleName) do
+    if imported == "LeanEvalGenerator.Core.Markers" then
+      -- A thin consumer compatibility module may import the standalone marker
+      -- implementation after spelling out the environment imports below it.
+      -- The generated workspace needs that environment, but not the marker
+      -- implementation or the generator package itself.
+      continue
     if imported == "EvalTools.Markers" then
       -- Do not expose the repository-only marker attribute, but do preserve
       -- the environment supplied by Markers. This matters for modules whose
