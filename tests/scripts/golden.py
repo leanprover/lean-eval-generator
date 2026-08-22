@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Byte-for-byte parity tests against checked-in LeanEval workspaces."""
 
 from __future__ import annotations
@@ -7,9 +6,9 @@ import hashlib
 import json
 import subprocess
 import sys
-import tomllib
 from pathlib import Path
 
+import tomllib
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[2]
 FIXTURE_IDS = json.loads(
@@ -23,8 +22,7 @@ def run(command: list[str], *, cwd: Path, stdin: str | None = None) -> str:
         cwd=cwd,
         input=stdin,
         text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        capture_output=True,
         check=False,
     )
     if result.returncode != 0:
