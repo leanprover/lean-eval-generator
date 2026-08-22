@@ -1244,10 +1244,12 @@ def isScopedOpenLine (stripped : String) : Bool := Id.run do
     if toks[i]! == "in" then return true
   return false
 
-/-- True if `block` is the single-command `<command> … in` form, which binds to
-the declaration following it rather than to the rest of the enclosing section. -/
+/-- True if `block` contains the single-command `<command> … in <declaration>`
+form, which binds to one declaration rather than to the rest of the enclosing
+section. The declaration may begin on the same line as `in` or on a following
+line. -/
 def isScopedCommandBlock (block : String) : Bool :=
-  (commandTokens block).back? == some "in"
+  (commandTokens block).contains "in"
 
 /-- True if the upcoming lines starting at `peekIdx` (0-indexed) form the
 continuation of a scoped `open … in` — that is, after any blank or
@@ -1622,8 +1624,8 @@ def extractContextLocalSyntaxDeclarations (source : String)
     (extracted? : Option ExtractedTheorem) : String :=
   extractScopedCommandBlocksWhere source extracted? isLocalSyntaxContextDeclaration (fun _ => true)
 
-/-- Collect the in-scope `variable` commands together with the
-notation/syntax/macro commands, preserving their source order.
+/-- Collect the in-scope `variable` and unscoped `set_option` commands together
+with the notation/syntax/macro commands, preserving their source order.
 
 Emitting them as two separate blocks reorders them, and the order matters in
 both directions: a notation may mention a variable, as in
@@ -1633,17 +1635,27 @@ both directions: a notation may mention a variable, as in
 
 and a later `variable` may be written using a notation. Emitting the notation
 first made the quotation precheck fail with `Unknown identifier 'd'` and left
-the macro without an elaborator. `syntaxMatches` selects which syntax commands to
-carry, so callers can keep the `local`-only behaviour when the non-local ones
-have already gone into `ChallengeDeps.lean`. -/
+the macro without an elaborator. An active option may likewise be required to
+elaborate a syntax declaration; for example, a set-builder notation can require
+`set_option quotPrecheck false` to precede it. Scoped `set_option ... in`
+commands are excluded because they belong only to their following declaration
+and hoisting them would change the target theorem's environment.
+
+`syntaxMatches` selects which syntax commands to carry, so callers can keep the
+`local`-only behaviour when the non-local ones have already gone into
+`ChallengeDeps.lean`. -/
 def extractContextVariablesAndSyntax (source : String)
     (extracted? : Option ExtractedTheorem) (theoremBinderNames : Array String)
     (syntaxMatches : String → Bool) : String :=
   extractScopedCommandBlocksWhere source extracted?
-    (fun stripped => startsWithKeyword stripped "variable" || syntaxMatches stripped)
+    (fun stripped => startsWithKeyword stripped "variable" ||
+      startsWithKeyword stripped "set_option" || syntaxMatches stripped)
     (fun block =>
-      if startsWithKeyword block.trimAsciiStart.toString "variable" then
+      let stripped := block.trimAsciiStart.toString
+      if startsWithKeyword stripped "variable" then
         !isScopedCommandBlock block && !variableShadowedByTheorem block theoremBinderNames
+      else if startsWithKeyword stripped "set_option" then
+        !isScopedCommandBlock block
       else true)
 
 /-! ## Delegation arguments -/
