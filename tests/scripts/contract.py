@@ -1,12 +1,13 @@
-#!/usr/bin/env python3
 """Small dependency-free checks for the CLI transport contract."""
 
 from __future__ import annotations
 
 import json
 import subprocess
+import tempfile
 from pathlib import Path
 
+from golden import module_path as golden_module_path
 
 ROOT = Path(__file__).resolve().parents[2]
 CLI = ROOT / ".lake/build/bin/lean-eval-generator"
@@ -127,7 +128,29 @@ def main() -> int:
     hole_unknown["problems"][0]["resolvedHoles"][0]["unexpected"] = True
     assert_rejected(hole_unknown, "resolvedHole contains an unknown field")
 
-    print("PASS malformed, version, and schema-invariant errors stay off stdout")
+    with tempfile.TemporaryDirectory() as directory:
+        context = Path(directory)
+        module_name = "Arxiv.«0912.2382».Fixture"
+        module_content = "theorem fixture : True := by sorry\n"
+        module_path = context / "Arxiv" / "0912.2382" / "Fixture.lean"
+        assert golden_module_path(context, module_name) == module_path
+        module_path.parent.mkdir(parents=True)
+        module_path.write_text(module_content, encoding="utf-8")
+        quoted = problem()
+        quoted["moduleName"] = module_name
+        quoted["moduleContent"] = module_content
+        quoted["resolvedHoles"][0]["module"] = module_name
+        quoted["resolvedHoles"][0]["declarationName"] = f"{module_name}.fixture"
+        payload = request_with(quoted)
+        payload["contextRoot"] = str(context)
+        result = invoke(json.dumps(payload))
+        assert result.returncode == 1
+        assert result.stdout == ""
+        expected_ilean = context / ".lake/build/lib/lean/Arxiv/0912.2382/Fixture.ilean"
+        assert str(expected_ilean) in result.stderr, result.stderr
+        assert "Arxiv/«0912/2382»" not in result.stderr
+
+    print("PASS schema errors stay off stdout and quoted source/ilean paths resolve")
     return 0
 
 

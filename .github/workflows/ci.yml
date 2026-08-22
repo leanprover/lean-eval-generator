@@ -37,5 +37,8 @@ jobs:
       - name: Check versioned JSON contract
         run: python3 tests/scripts/contract.py
 
+      - name: Check quoted module and declaration paths
+        run: lake build test_module_paths && lake env .lake/build/bin/test_module_paths
+
       - name: Check Python test harnesses
         run: python3 -m py_compile tests/scripts/*.py
