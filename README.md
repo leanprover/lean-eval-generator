@@ -5,7 +5,7 @@ LeanEval. Its `lean-eval-generator` executable accepts one versioned JSON
 request on stdin (or from a single file argument), writes one JSON response to
 stdout, and writes diagnostics only to stderr.
 
-The v1 request supplies benchmark context, exact Lean/Mathlib pins, templates,
+The schema-version-1 request supplies benchmark context, exact Lean/Mathlib pins, templates,
 marked module content, and hole metadata resolved by the consumer's Lean
 environment. The response contains the complete generated file map and a
 SHA-256 digest for every file. The executable does not write generated files.
@@ -19,9 +19,9 @@ python3 tests/scripts/golden.py /path/to/lean-eval
 python3 tests/scripts/contract.py
 ```
 
-The benchmark context is still required in v1 to resolve trusted imported
+The benchmark context is still required in schema version 1 to resolve trusted imported
 modules and declaration spans from `.ilean` data. A future wire version can
-replace that context with an explicit dependency bundle without changing v1.
+replace that context with an explicit dependency bundle without changing schema version 1.
 
 The consumer owns hole resolution. This matches the interface needed by the
 Formal Conjectures importer: it can resolve declarations under LeanEval's
