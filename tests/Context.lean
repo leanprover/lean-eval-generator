@@ -47,4 +47,12 @@ def main : IO Unit := do
       isLocalSyntaxContextDeclaration)
     "local notation \"A\" => Nat\n\n"
 
+  let inlineDeclarationScoped :=
+    "set_option pp.universes true in def helper : Nat := 0\n" ++
+    "local notation \"A\" => Nat\ntheorem target : True := by sorry\n"
+  expectEq "inline declaration-scoped option does not leak"
+    (extractContextVariablesAndSyntax inlineDeclarationScoped (some (targetAt 3)) #[]
+      isLocalSyntaxContextDeclaration)
+    "local notation \"A\" => Nat\n\n"
+
   IO.println "PASS active set_option context is preserved without scoped-option leakage"
