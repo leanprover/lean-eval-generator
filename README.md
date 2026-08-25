@@ -23,9 +23,7 @@ The benchmark context is still required in schema version 1 to resolve trusted i
 modules and declaration spans from `.ilean` data. A future wire version can
 replace that context with an explicit dependency bundle without changing schema version 1.
 
-The consumer owns hole resolution. This matches the interface needed by the
-Formal Conjectures importer: it can resolve declarations under LeanEval's
-pinned target environment, then pass the resulting ranges and dependency data
-to this renderer. Formal Conjectures fixtures are intentionally not copied or
-modified in this foundation package; they should be added by their importer
-owners when that consumer switches to the contract.
+The consumer owns hole resolution. A consumer resolves declarations under its
+pinned target environment, then passes the resulting ranges and dependency
+data to this renderer. Consumer-specific fixtures and source trees do not
+belong in this foundation package.
