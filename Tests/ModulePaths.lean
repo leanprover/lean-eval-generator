@@ -8,15 +8,15 @@ private def assertEqual (label actual expected : String) : IO Unit := do
 
 def main : IO Unit := do
   let root : System.FilePath := "/tmp/lean-eval-generator-context"
-  let quoted := "FormalConjectures.Arxiv.«0912.2382».CurlingNumberConjecture"
+  let quoted := "SyntheticCorpus.Archive.«0912.2382».QuotedModule"
   let components := splitNameComponents quoted
   unless components ==
-      #["FormalConjectures", "Arxiv", "0912.2382", "CurlingNumberConjecture"] do
+      #["SyntheticCorpus", "Archive", "0912.2382", "QuotedModule"] do
     throw <| IO.userError s!"quoted components were split incorrectly: {components}"
   assertEqual "source path" (moduleSourcePath root quoted).toString
-    "/tmp/lean-eval-generator-context/FormalConjectures/Arxiv/0912.2382/CurlingNumberConjecture.lean"
+    "/tmp/lean-eval-generator-context/SyntheticCorpus/Archive/0912.2382/QuotedModule.lean"
   assertEqual "ilean path" (ileanPath root quoted).toString
-    "/tmp/lean-eval-generator-context/.lake/build/lib/lean/FormalConjectures/Arxiv/0912.2382/CurlingNumberConjecture.ilean"
+    "/tmp/lean-eval-generator-context/.lake/build/lib/lean/SyntheticCorpus/Archive/0912.2382/QuotedModule.ilean"
   assertEqual "plain path" (moduleSourcePath root "LeanEval.Fixture").toString
     "/tmp/lean-eval-generator-context/LeanEval/Fixture.lean"
   assertEqual "quoted keyword" (moduleSourcePath root "Foo.«match».Bar").toString
