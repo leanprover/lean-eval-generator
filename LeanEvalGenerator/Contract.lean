@@ -81,16 +81,16 @@ private def validateRequest (request : GenerateRequest) : IO Unit := do
       throw <| IO.userError s!"Duplicate problem id `{problem.id}`."
     problemIds := problemIds.push problem.id
 
-private def sha256 (content : String) : IO String := do
+def sha256 (content : String) : IO String := do
   let out ← IO.Process.output {
-    cmd := "sha256sum"
-    args := #["-"]
+    cmd := "openssl"
+    args := #["dgst", "-sha256", "-r"]
   } (some content)
   if out.exitCode != 0 then
-    throw <| IO.userError s!"sha256sum failed: {out.stderr.trimAscii.toString}"
+    throw <| IO.userError s!"openssl SHA-256 failed: {out.stderr.trimAscii.toString}"
   let digest := (out.stdout.splitOn " ").head!.trimAscii.toString
-  if digest.length != 64 then
-    throw <| IO.userError "sha256sum returned an invalid digest."
+  if digest.length != 64 || !digest.toList.all (fun c => c.isDigit || (c >= 'a' && c <= 'f')) then
+    throw <| IO.userError "openssl returned an invalid SHA-256 digest."
   return digest
 
 private def metadata (problem : ProblemInput) : LeanEvalGenerator.Core.EvalProblemMetadata := {

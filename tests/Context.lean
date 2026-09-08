@@ -1,4 +1,4 @@
-import LeanEvalGenerator.Core.Generate
+import LeanEvalGenerator.Contract
 
 open LeanEvalGenerator.Core
 
@@ -19,6 +19,10 @@ private def expectEq (label actual expected : String) : IO Unit := do
       s!"{label} mismatch\nexpected:\n{repr expected}\nactual:\n{repr actual}"
 
 def main : IO Unit := do
+  expectEq "empty SHA-256" (← LeanEvalGenerator.sha256 "")
+    "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  expectEq "UTF-8 SHA-256" (← LeanEvalGenerator.sha256 "∀ n : ℕ, n = n\n")
+    "dc24fa7cb94558b9cdf90e20ca6372130a63a26c9c05640a00aab7e75b8d000a"
   let erdosStyle :=
     "namespace Fixture\nset_option quotPrecheck false\n\n" ++
     "local notation \"A\" => { x : Nat | x = 0 }\nvariable (n : Nat)\n" ++
