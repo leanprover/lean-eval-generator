@@ -48,3 +48,8 @@ remains unchanged; no legacy source-processing path is used for v2 requests.
 Run `python3 tests/scripts/structured.py` to exercise real Git package resolution,
 dependent definition holes, polymorphic theorems, deterministic output and invalid
 request rejection, without any source context or compiler metadata.
+
+The renderer requires `openssl` on `PATH` for SHA-256 file digests (macOS and Linux);
+GNU `sha256sum` is not required. Deploy a reviewed generator revision built with its
+pinned Lean toolchain, and record the executable digest alongside the source revision.
+The wire schema version identifies the contract, not the executable provenance.
