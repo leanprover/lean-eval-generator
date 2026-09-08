@@ -1,0 +1,272 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://leanprover.github.io/lean-eval-generator/request-v2.schema.json",
+  "title": "LeanEval generator request schema version 2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "contextRoot",
+    "leanToolchain",
+    "mathlib",
+    "templates",
+    "problems",
+    "dependencies"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 2
+    },
+    "contextRoot": {
+      "type": "string",
+      "minLength": 1
+    },
+    "leanToolchain": {
+      "type": "string",
+      "minLength": 1
+    },
+    "mathlib": {
+      "$ref": "#/$defs/dependency"
+    },
+    "templates": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "workspaceTest"
+      ],
+      "properties": {
+        "workspaceTest": {
+          "type": "string"
+        }
+      }
+    },
+    "problems": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/problem"
+      }
+    },
+    "dependencies": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/packageDependency"
+      }
+    }
+  },
+  "$defs": {
+    "dependency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "git",
+        "rev"
+      ],
+      "properties": {
+        "name": {
+          "const": "mathlib"
+        },
+        "git": {
+          "type": "string",
+          "minLength": 1
+        },
+        "rev": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "resolvedHole": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "declarationName",
+        "module",
+        "startLine",
+        "startColumn",
+        "endLine",
+        "endColumn",
+        "kind"
+      ],
+      "properties": {
+        "declarationName": {
+          "type": "string",
+          "minLength": 1
+        },
+        "module": {
+          "type": "string",
+          "minLength": 1
+        },
+        "startLine": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "startColumn": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "endLine": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "endColumn": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "explicitParameters": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "sameModuleDependencies": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "holeDependentDependencies": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "kind": {
+          "enum": [
+            "theorem",
+            "def",
+            "instance"
+          ]
+        }
+      }
+    },
+    "problem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "title",
+        "group",
+        "status",
+        "visible",
+        "statementRevision",
+        "tags",
+        "moduleName",
+        "holes",
+        "submitter",
+        "moduleContent",
+        "resolvedHoles"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "group": {
+          "enum": [
+            "formalization-evaluation",
+            "software-verification",
+            "open-conjectures"
+          ]
+        },
+        "status": {
+          "enum": [
+            "draft",
+            "active",
+            "archived"
+          ]
+        },
+        "visible": {
+          "type": "boolean"
+        },
+        "statementRevision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "tags": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "moduleName": {
+          "type": "string",
+          "minLength": 1
+        },
+        "holes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "submitter": {
+          "type": "string",
+          "minLength": 1
+        },
+        "notes": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "informalSolution": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "moduleContent": {
+          "type": "string"
+        },
+        "resolvedHoles": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/resolvedHole"
+          }
+        }
+      }
+    },
+    "packageDependency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "git",
+        "rev"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]+$"
+        },
+        "git": {
+          "type": "string",
+          "minLength": 1
+        },
+        "rev": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        }
+      }
+    }
+  }
+}

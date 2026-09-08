@@ -84,7 +84,7 @@ def main() -> int:
     wrong_version = invoke(
         json.dumps(
             {
-                "schemaVersion": 2,
+                "schemaVersion": 99,
                 "contextRoot": ".",
                 "leanToolchain": "leanprover/lean4:v0.0.0\n",
                 "mathlib": {"name": "mathlib", "git": "x", "rev": "y"},
@@ -95,7 +95,7 @@ def main() -> int:
     )
     assert wrong_version.returncode == 1
     assert wrong_version.stdout == ""
-    assert "Unsupported schemaVersion 2; expected 1" in wrong_version.stderr
+    assert "Unsupported schemaVersion 99; expected 1 or 2" in wrong_version.stderr
 
     duplicate_tags = problem()
     duplicate_tags["tags"] = ["example", "example"]
