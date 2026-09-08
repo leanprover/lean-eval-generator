@@ -1,4 +1,4 @@
-import LeanEvalGenerator.Contract
+import LeanEvalGenerator.Structured
 
 namespace LeanEvalGenerator
 
@@ -14,10 +14,14 @@ private def readRequest : List String → IO String
 def run (args : List String) : IO UInt32 := do
   try
     let payload ← readRequest args
-    let request ← match parseRequest payload with
-      | .ok request => pure request
-      | .error error => throw <| IO.userError s!"Invalid generator request: {error}"
-    let response ← render request
+    let value ← IO.ofExcept <| (Lean.Json.parse payload).mapError ("Invalid generator request: " ++ ·)
+    let version ← IO.ofExcept <| (value.getObjValAs? Nat "schemaVersion").mapError ("Invalid generator request: " ++ ·)
+    let response ← if version == 3 then do
+      let request ← IO.ofExcept <| (Structured.parse value).mapError ("Invalid generator request: " ++ ·)
+      Structured.render request
+    else do
+      let request ← IO.ofExcept <| (parseRequest payload).mapError ("Invalid generator request: " ++ ·)
+      render request
     IO.print response
     return 0
   catch error =>

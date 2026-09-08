@@ -45,3 +45,6 @@ jobs:
 
       - name: Check Python test harnesses
         run: python3 -m py_compile tests/scripts/*.py
+
+      - name: Test structured declaration contract
+        run: python3 tests/scripts/structured.py

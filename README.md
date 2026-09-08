@@ -64,3 +64,24 @@ python3 tests/scripts/packages.py
 
 The test creates local Git packages, compiles real Lean declaration metadata,
 generates a workspace, fills its proof, and builds its fixed Solution adapter.
+
+## Structured declarations (version 3)
+
+Version 3 accepts package pins, imports, and ordered declarations with `name`,
+`kind`, `type`, and explicit `levels`. It renders Challenge, Submission and Solution
+without a context directory, source ranges, `.ilean`, helper discovery, or source
+rewriting. Definitions in Solution are reducible aliases to the submitted values,
+so later hole types can depend on earlier holes. Signatures contain all binders;
+Solution forwards them with an explicit `@` reference and universe arguments.
+
+The schemas are `schemas/request-v3.schema.json` and `schemas/response-v3.schema.json`.
+Types and the test-driver template are trusted source supplied by the consumer,
+just as moduleContent is trusted in v1. The consumer must validate the signatures
+with its own Lean environment and compile the generated Challenge before use.
+The renderer does not interpret type syntax using its potentially different Lean
+version. Import boundaries are validated with Lean's header parser. All versions
+remain supported; no legacy source-processing path is used for v3 requests.
+
+Run `python3 tests/scripts/structured.py` to exercise real Git package resolution,
+dependent definition holes, polymorphic theorems, deterministic output and invalid
+request rejection, without any source context or compiler metadata.

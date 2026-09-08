@@ -96,7 +96,7 @@ private def validateRequest (request : GenerateRequest) : IO Unit := do
       throw <| IO.userError s!"Duplicate problem id `{problem.id}`."
     problemIds := problemIds.push problem.id
 
-private def sha256 (content : String) : IO String := do
+def sha256 (content : String) : IO String := do
   let out ← IO.Process.output {
     cmd := "sha256sum"
     args := #["-"]
