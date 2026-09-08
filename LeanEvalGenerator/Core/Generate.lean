@@ -2893,10 +2893,7 @@ private def renderReadmeLines (entry : EvalProblemMetadata)
   return lines ++ body
 
 private def lakefileToml (problemId : String) (mathlibDep : DependencySpec)
-    (withChallengeDeps : Bool) (dependencies : Array DependencySpec) : String :=
-  let extraRequires := String.join <| dependencies.toList.map fun dep =>
-    "[[require]]\n" ++ s!"name = {dep.name.quote}\n" ++
-      s!"git = {dep.git.quote}\n" ++ s!"rev = {dep.rev.quote}\n\n"
+    (withChallengeDeps : Bool) : String :=
   let challengeDepsLib :=
     if withChallengeDeps then
       "[[lean_lib]]\nname = \"ChallengeDeps\"\n\n"
@@ -2910,7 +2907,7 @@ private def lakefileToml (problemId : String) (mathlibDep : DependencySpec)
   s!"name = \"{mathlibDep.name}\"\n" ++
   s!"git = \"{mathlibDep.git}\"\n" ++
   s!"rev = \"{mathlibDep.rev}\"\n\n" ++
-  extraRequires ++ challengeDepsLib ++
+  challengeDepsLib ++
   "[[lean_lib]]\nname = \"Challenge\"\n\n" ++
   "[[lean_lib]]\nname = \"Solution\"\n\n" ++
   "[[lean_lib]]\nname = \"Submission\"\n\n" ++
@@ -2920,8 +2917,7 @@ private def lakefileToml (problemId : String) (mathlibDep : DependencySpec)
 
 private def renderWorkspaceMultiHole (root : System.FilePath) (entry : EvalProblemMetadata)
     (extracteds : Array ExtractedTheorem) (toolchain : String)
-    (mathlibDep : DependencySpec) (workspaceTest : String)
-    (dependencies : Array DependencySpec := #[]) :
+    (mathlibDep : DependencySpec) (workspaceTest : String) :
     IO (Array (String × String)) := do
   let sourcePath := moduleSourcePath root entry.moduleName
   if !(← sourcePath.pathExists) then
@@ -3183,7 +3179,7 @@ private def renderWorkspaceMultiHole (root : System.FilePath) (entry : EvalProbl
   let mut files : Array (String × String) := #[
     ("README.md", readme),
     ("lean-toolchain", toolchain'),
-    ("lakefile.toml", lakefileToml entry.id mathlibDep (withChallengeDeps := hasChallengeDeps) dependencies),
+    ("lakefile.toml", lakefileToml entry.id mathlibDep (withChallengeDeps := hasChallengeDeps)),
     ("Challenge.lean", challenge),
     ("Solution.lean", solutionBody),
     ("Submission.lean", submissionBody),
@@ -3199,7 +3195,7 @@ private def renderWorkspaceMultiHole (root : System.FilePath) (entry : EvalProbl
 
 private def renderWorkspaceSingleHole (root : System.FilePath) (entry : EvalProblemMetadata)
     (extracted : ExtractedTheorem) (toolchain : String) (mathlibDep : DependencySpec)
-    (workspaceTest : String) (dependencies : Array DependencySpec := #[]) : IO (Array (String × String)) := do
+    (workspaceTest : String) : IO (Array (String × String)) := do
   let sourcePath := moduleSourcePath root entry.moduleName
   let sourceText ← IO.FS.readFile sourcePath
   let src := Source.ofString sourceText
@@ -3287,7 +3283,7 @@ private def renderWorkspaceSingleHole (root : System.FilePath) (entry : EvalProb
   let mut files : Array (String × String) := #[
     ("README.md", readme),
     ("lean-toolchain", toolchain'),
-    ("lakefile.toml", lakefileToml entry.id mathlibDep (withChallengeDeps := hasChallengeDeps) dependencies),
+    ("lakefile.toml", lakefileToml entry.id mathlibDep (withChallengeDeps := hasChallengeDeps)),
     ("Challenge.lean", challengeFile),
     ("Solution.lean", solutionFile),
     ("Submission.lean", submissionFile),
@@ -3302,16 +3298,15 @@ private def renderWorkspaceSingleHole (root : System.FilePath) (entry : EvalProb
 /-- Render every file in a generated workspace. Mirrors `render_workspace`. -/
 def renderWorkspace (root : System.FilePath) (entry : EvalProblemMetadata)
     (extracteds : Array ExtractedTheorem) (toolchain : String)
-    (mathlibDep : DependencySpec) (workspaceTest : String)
-    (dependencies : Array DependencySpec := #[]) :
+    (mathlibDep : DependencySpec) (workspaceTest : String) :
     IO (Array (String × String)) := do
   let isMultiHole :=
     extracteds.size != 1 || extracteds[0]!.kind != "theorem"
   let baseFiles ←
     if isMultiHole then
-      renderWorkspaceMultiHole root entry extracteds toolchain mathlibDep workspaceTest dependencies
+      renderWorkspaceMultiHole root entry extracteds toolchain mathlibDep workspaceTest
     else
-      renderWorkspaceSingleHole root entry extracteds[0]! toolchain mathlibDep workspaceTest dependencies
+      renderWorkspaceSingleHole root entry extracteds[0]! toolchain mathlibDep workspaceTest
   let holesJson ← buildHolesMetadata root entry extracteds
   return baseFiles.push ("holes.json", holesJson)
 

@@ -57,15 +57,14 @@ structure GenerateRequest where
   contextRoot : String
   leanToolchain : String
   mathlib : DependencyPin
-  dependencies : Array DependencyPin := #[]
   templates : TemplateInputs
   problems : Array ProblemInput
   deriving FromJson
 
 private def validateRequest (request : GenerateRequest) : IO Unit := do
-  if request.schemaVersion != 1 && request.schemaVersion != 2 then
+  if request.schemaVersion != contractVersion then
     throw <| IO.userError
-      s!"Unsupported schemaVersion {request.schemaVersion}; expected 1 or 2."
+      s!"Unsupported schemaVersion {request.schemaVersion}; expected {contractVersion}."
   if request.problems.isEmpty then
     throw <| IO.userError "The request must contain at least one problem."
   if request.contextRoot.isEmpty then
@@ -76,20 +75,6 @@ private def validateRequest (request : GenerateRequest) : IO Unit := do
     throw <| IO.userError "The dependency pin must be named `mathlib`."
   if request.mathlib.git.isEmpty || request.mathlib.rev.isEmpty then
     throw <| IO.userError "The mathlib git and rev pins must be non-empty."
-  if request.schemaVersion == 1 && !request.dependencies.isEmpty then
-    throw <| IO.userError "Additional dependencies require schemaVersion 2."
-  let mut names := #["mathlib"]
-  for dep in request.dependencies do
-    if dep.name.isEmpty || !(dep.name.toList.all fun c => (c.toNat < 128 && c.isAlphanum) || c == '_' || c == '-') then
-      throw <| IO.userError "Dependency names must be non-empty package identifiers."
-    if names.contains dep.name then
-      throw <| IO.userError s!"Duplicate dependency `{dep.name}`."
-    names := names.push dep.name
-    if dep.git.isEmpty then
-      throw <| IO.userError s!"Dependency `{dep.name}` requires a git URL."
-    if dep.rev.length != 40 || !(dep.rev.toList.all fun c =>
-        c.isDigit || ('a' ≤ c && c ≤ 'f')) then
-      throw <| IO.userError s!"Dependency `{dep.name}` requires a full lowercase commit SHA."
   let mut problemIds : Array String := #[]
   for problem in request.problems do
     if problemIds.contains problem.id then
@@ -216,11 +201,10 @@ def render (request : GenerateRequest) : IO String := do
     let rendered ← LeanEvalGenerator.Core.renderWorkspace root (metadata problem)
       (problem.resolvedHoles.map extracted) request.leanToolchain mathlib
       request.templates.workspaceTest
-      (request.dependencies.map fun dep => { name := dep.name, git := dep.git, rev := dep.rev })
     for (path, content) in rendered do
       files := files.push <| fileJson problem.id path content (← sha256 content)
   let response := LeanEvalGenerator.Core.ojObj #[
-    ("schemaVersion", LeanEvalGenerator.Core.ojNat request.schemaVersion),
+    ("schemaVersion", LeanEvalGenerator.Core.ojNat contractVersion),
     ("files", LeanEvalGenerator.Core.ojArr files)
   ]
   return LeanEvalGenerator.Core.OJson.pretty response ++ "\n"
@@ -232,12 +216,9 @@ private def ensureKnownFields (label : String) (allowed : Array String)
     throw s!"{label} contains an unknown field"
 
 private def validateJsonShape (value : Json) : Except String Unit := do
-  let version ← value.getObjValAs? Nat "schemaVersion"
-  let fields := #["schemaVersion", "contextRoot", "leanToolchain", "mathlib", "templates", "problems"]
-  ensureKnownFields "request" (if version == 2 then fields.push "dependencies" else fields) value
-  if version == 2 then
-    for dep in (← (← value.getObjVal? "dependencies").getArr?) do
-      ensureKnownFields "dependency" #["name", "git", "rev"] dep
+  ensureKnownFields "request" #[
+    "schemaVersion", "contextRoot", "leanToolchain", "mathlib", "templates", "problems"
+  ] value
   let mathlib ← value.getObjVal? "mathlib"
   ensureKnownFields "mathlib" #["name", "git", "rev"] mathlib
   let templates ← value.getObjVal? "templates"
@@ -259,9 +240,6 @@ private def validateJsonShape (value : Json) : Except String Unit := do
 def parseRequest (payload : String) : Except String GenerateRequest := do
   let value ← Json.parse payload
   validateJsonShape value
-  let version ← value.getObjValAs? Nat "schemaVersion"
-  if version != 1 && version != 2 then
-    throw s!"Unsupported schemaVersion {version}; expected 1 or 2."
-  fromJson? (if version == 1 then value.setObjVal! "dependencies" (toJson (#[] : Array Json)) else value)
+  fromJson? value
 
 end LeanEvalGenerator

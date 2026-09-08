@@ -7,7 +7,29 @@ import tempfile
 import tomllib
 
 from contract import ROOT, invoke
-from packages import package, run
+import subprocess
+
+def run(args, cwd, env=None):
+    result = subprocess.run(args, cwd=cwd, env=env, text=True, capture_output=True)
+    if result.returncode:
+        raise AssertionError(f"{args}:\n{result.stdout}\n{result.stderr}")
+    return result.stdout.strip()
+
+
+def package(root, name, module, content):
+    root.mkdir()
+    (root / "lakefile.toml").write_text(
+        f'name = "{name}"\n[[lean_lib]]\nname = "{module}"\n'
+    )
+    (root / "lean-toolchain").write_text((ROOT / "lean-toolchain").read_text())
+    (root / f"{module}.lean").write_text(content)
+    run(["git", "init", "-q"], root)
+    run(["git", "add", "."], root)
+    run(["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+         "commit", "-qm", "fixture"], root)
+    return {"name": name, "git": str(root), "rev": run(["git", "rev-parse", "HEAD"], root)}
+
+
 
 
 def main():
@@ -15,7 +37,7 @@ def main():
         root = Path(directory)
         support = package(root / 'support', 'fixture_support', 'FixtureSupport',
                           'def FixtureSupport.value : Nat := 7\n')
-        request = {'schemaVersion': 3, 'leanToolchain': (ROOT / 'lean-toolchain').read_text(),
+        request = {'schemaVersion': 2, 'enableNanoda': True, 'leanToolchain': (ROOT / 'lean-toolchain').read_text(),
                    'dependencies': [support], 'templates': {'workspaceTest': 'def main : IO Unit := pure ()\n'},
                    'problems': [{'id': 'structured', 'title': 'Structured fixtures',
                                  'imports': ['FixtureSupport'], 'declarations': [
@@ -29,7 +51,7 @@ def main():
         assert result.returncode == 0, result.stderr
         assert invoke(json.dumps(request)).stdout == result.stdout
         response = json.loads(result.stdout)
-        assert response['schemaVersion'] == 3
+        assert response['schemaVersion'] == 2
         files = {f['path']: f['content'] for f in response['files']}
         for f in response['files']:
             assert hashlib.sha256(f['content'].encode()).hexdigest() == f['sha256']

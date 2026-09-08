@@ -37,9 +37,6 @@ jobs:
       - name: Check versioned JSON contract
         run: python3 tests/scripts/contract.py
 
-      - name: Build a workspace with a pinned external package
-        run: python3 tests/scripts/packages.py
-
       - name: Check quoted module and declaration paths
         run: lake build test_module_paths && lake env .lake/build/bin/test_module_paths
 

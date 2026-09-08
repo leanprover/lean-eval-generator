@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://leanprover.github.io/lean-eval-generator/response-v2.schema.json",
-  "title": "LeanEval generator response schema version 2",
+  "$id": "response-v2.schema.json",
+  "title": "Structured workspace response",
   "type": "object",
   "additionalProperties": false,
   "required": [

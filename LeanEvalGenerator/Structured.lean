@@ -22,6 +22,7 @@ structure Problem where
 structure Request where
   schemaVersion : Nat
   leanToolchain : String
+  enableNanoda : Bool
   dependencies : Array DependencyPin
   templates : TemplateInputs
   problems : Array Problem
@@ -33,7 +34,7 @@ private def exactFields (value : Json) (fields : List String) : Except String Un
     throw "Unexpected or missing structured request fields"
 
 def parse (value : Json) : Except String Request := do
-  exactFields value ["schemaVersion", "leanToolchain", "dependencies", "templates", "problems"]
+  exactFields value ["schemaVersion", "leanToolchain", "enableNanoda", "dependencies", "templates", "problems"]
   exactFields (← value.getObjVal? "templates") ["workspaceTest"]
   for d in (← value.getObjValAs? (Array Json) "dependencies") do
     exactFields d ["name", "git", "rev"]
@@ -51,7 +52,7 @@ private def require (condition : Bool) (message : String) : IO Unit :=
   unless condition do throw <| IO.userError message
 
 private def validate (r : Request) : IO Unit := do
-  require (r.schemaVersion == 3) "Expected schemaVersion 3"
+  require (r.schemaVersion == 2) "Expected schemaVersion 2"
   require (!r.leanToolchain.trimAscii.isEmpty && !r.problems.isEmpty) "Empty toolchain or problems"
   let mut packages := #[]
   for d in r.dependencies do
@@ -109,6 +110,7 @@ private def workspace (r : Request) (p : Problem) : Array (String × String) := 
     ("challenge_module", toJson "Challenge"), ("solution_module", toJson "Solution"),
     ("theorem_names", toJson (p.declarations.filter (·.kind == "theorem") |>.map (·.name))),
     ("definition_names", toJson (p.declarations.filter (·.kind == "def") |>.map (·.name))),
+    ("enable_nanoda", toJson r.enableNanoda),
     ("permitted_axioms", toJson #["propext", "Quot.sound", "Classical.choice"])]
   return #[("Challenge.lean", challenge), ("Submission.lean", submission),
     ("Submission/Helpers.lean", imports), ("Solution.lean", solution),
@@ -127,6 +129,6 @@ def render (r : Request) : IO String := do
     for (path, content) in workspace r p do
       files := files.push <| Json.mkObj [("problemId", toJson p.id), ("path", toJson path),
         ("content", toJson content), ("sha256", toJson (← LeanEvalGenerator.sha256 content))]
-  return (Json.mkObj [("schemaVersion", toJson (3 : Nat)), ("files", toJson files)]).pretty ++ "\n"
+  return (Json.mkObj [("schemaVersion", toJson (2 : Nat)), ("files", toJson files)]).pretty ++ "\n"
 
 end LeanEvalGenerator.Structured

@@ -16,7 +16,9 @@ def run (args : List String) : IO UInt32 := do
     let payload ← readRequest args
     let value ← IO.ofExcept <| (Lean.Json.parse payload).mapError ("Invalid generator request: " ++ ·)
     let version ← IO.ofExcept <| (value.getObjValAs? Nat "schemaVersion").mapError ("Invalid generator request: " ++ ·)
-    let response ← if version == 3 then do
+    unless version == 1 || version == 2 do
+      throw <| IO.userError s!"Unsupported schemaVersion {version}; expected 1 or 2."
+    let response ← if version == 2 then do
       let request ← IO.ofExcept <| (Structured.parse value).mapError ("Invalid generator request: " ++ ·)
       Structured.render request
     else do
