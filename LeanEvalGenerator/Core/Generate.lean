@@ -50,27 +50,62 @@ structure DependencySpec where
   rev : String
   deriving Inhabited
 
-private structure RawRequire where
+/-- A `[[require]]` from the root lakefile, kept as read. Non-mathlib requires
+are only validated when some problem selects them (see `workspaceRequires`), so
+tooling requires the generator never emits may use any Lake require syntax. -/
+structure RootRequire where
   name : String
   git : Option String := none
   rev : Option String := none
+  /-- Fields present in the root require that a generated `[[require]]` would
+  not reproduce, such as `subDir`, `scope`, `version`, `path`, `options`, or a
+  table-valued `git`. -/
+  unsupportedFields : Array String := #[]
   deriving Inhabited
 
-private instance : DecodeToml RawRequire where
-  decode v := do
-    let t ← v.decodeTable
-    let name : String ← t.decode `name
-    let git? : Option String ← t.decode? `git
-    let rev? : Option String ← t.decode? `rev
-    return { name := name, git := git?, rev := rev? }
+def RootRequire.ofSpec (spec : DependencySpec) : RootRequire :=
+  { name := spec.name, git := some spec.git, rev := some spec.rev }
+
+private def nonEmptyTrimmed? (value? : Option String) : Option String :=
+  value?.bind fun v => let v := v.trim; if v.isEmpty then none else some v
+
+/-- The `[[require]]` to emit for a selected root require, or an explanation of
+why a standalone workspace cannot reproduce it. -/
+def RootRequire.toSpec (r : RootRequire) : Except String DependencySpec := do
+  unless r.unsupportedFields.isEmpty do
+    throw s!"root require '{r.name}' uses fields a generated workspace does not \
+      reproduce: {", ".intercalate r.unsupportedFields.toList}. Only `name`, `git` \
+      and `rev` are supported."
+  let some git := nonEmptyTrimmed? r.git
+    | throw s!"root require '{r.name}' is not a git require with a non-empty `git` URL"
+  let some rev := nonEmptyTrimmed? r.rev
+    | throw s!"root require '{r.name}' does not pin a non-empty `rev`"
+  return { name := r.name, git, rev }
+
+private def rootRequireOfTable (t : Table) : Except String RootRequire := do
+  let name ← match t.find? `name with
+    | some (.string _ n) => pure n
+    | _ => throw "a [[require]] entry is missing a string `name` field"
+  let mut git : Option String := none
+  let mut rev : Option String := none
+  let mut unsupported : Array String := #[]
+  for (key, value) in t.items do
+    match key.toString, value with
+    | "name", _ => pure ()
+    | "git", .string _ g => git := some g
+    | "git", _ => unsupported := unsupported.push "table-valued `git`"
+    | "rev", .string _ r => rev := some r
+    | "rev", _ => unsupported := unsupported.push "non-string `rev`"
+    | other, _ => unsupported := unsupported.push s!"`{other}`"
+  return { name, git, rev, unsupportedFields := unsupported }
 
 /-- The dependencies a generated workspace may require, read from the root
-lakefile: the mandatory `mathlib` pin, plus every other git-pinned `[[require]]`
-in root lakefile order. An extra require is only emitted into a workspace whose
+lakefile: the mandatory `mathlib` pin, plus every other root `[[require]]` in
+root lakefile order. An extra require is only emitted into a workspace whose
 problem imports one of its modules; see `workspaceRequires`. -/
 structure RootDependencies where
   mathlib : DependencySpec
-  extras : Array DependencySpec := #[]
+  extras : Array RootRequire := #[]
   deriving Inhabited
 
 /-- A bare `mathlib` pin is a complete dependency set with no extras, so
@@ -78,7 +113,7 @@ callers holding only a `DependencySpec` keep working unchanged. -/
 instance : Coe DependencySpec RootDependencies where
   coe mathlib := { mathlib }
 
-private def loadRootRequires (path : System.FilePath) : IO (Array RawRequire) := do
+private def loadRootRequires (path : System.FilePath) : IO (Array RootRequire) := do
   let contents ← IO.FS.readFile path
   let inputCtx := mkInputContext contents path.toString
   let table ←
@@ -86,32 +121,30 @@ private def loadRootRequires (path : System.FilePath) : IO (Array RawRequire) :=
     | .ok table => pure table
     | .error err => throw <| IO.userError (← Lake.mkMessageLogString err)
   let decoded :
-      EStateM.Result Unit (Array DecodeError) (Array RawRequire) :=
-    (Lake.Toml.Table.decode (α := Array RawRequire) table `require).run #[]
-  match decoded with
-  | .ok arr errors =>
-      if errors.isEmpty then pure arr
-      else throw <| IO.userError (decodeErrorsToString errors)
-  | .error _ errors =>
-      throw <| IO.userError (decodeErrorsToString errors)
+      EStateM.Result Unit (Array DecodeError) (Array Table) :=
+    (Lake.Toml.Table.decode (α := Array Table) table `require).run #[]
+  let tables ← match decoded with
+    | .ok arr errors =>
+        if errors.isEmpty then pure arr
+        else throw <| IO.userError (decodeErrorsToString errors)
+    | .error _ errors =>
+        throw <| IO.userError (decodeErrorsToString errors)
+  tables.mapM fun t => match rootRequireOfTable t with
+    | .ok r => pure r
+    | .error e => throw <| IO.userError s!"{path}: {e}"
 
 private def requiredField (path : System.FilePath) (depName field : String)
     (value? : Option String) : IO String := do
-  match value?.map (·.trim) with
-  | some v =>
-      if v.isEmpty then
-        throw <| IO.userError
-          s!"{depName} dependency in {path} is missing a non-empty '{field}' field"
-      else pure v
+  match nonEmptyTrimmed? value? with
+  | some v => pure v
   | none =>
       throw <| IO.userError
         s!"{depName} dependency in {path} is missing a non-empty '{field}' field"
 
-/-- Read the root `lakefile.toml`: the single `mathlib` require (which must
-have non-empty `git` and `rev`), and every other require that has a `git`
-field, which must then also pin a non-empty `rev`. Requires without `git`
-(path or Reservoir dependencies) cannot be reproduced in a standalone
-workspace and are ignored. -/
+/-- Read the root `lakefile.toml`: the single `mathlib` require, which must
+have non-empty `git` and `rev`, and every other require as written. Other
+requires are not validated here; a problem that selects one fails if it
+cannot be reproduced (see `RootRequire.toSpec`). -/
 def loadRootDependencies (root : System.FilePath) : IO RootDependencies := do
   let path := root / "lakefile.toml"
   let rootRequires ← loadRootRequires path
@@ -123,14 +156,10 @@ def loadRootDependencies (root : System.FilePath) : IO RootDependencies := do
   let entry := mathlib[0]!
   let git ← requiredField path "mathlib" "git" entry.git
   let rev ← requiredField path "mathlib" "rev" entry.rev
-  let mut extras : Array DependencySpec := #[]
-  for r in rootRequires do
-    if r.name == "mathlib" then continue
-    let some git := r.git | continue
-    let git ← requiredField path r.name "git" (some git)
-    let rev ← requiredField path r.name "rev" r.rev
-    extras := extras.push { name := r.name, git, rev }
-  return { mathlib := { name := "mathlib", git := git, rev := rev }, extras }
+  return {
+    mathlib := { name := "mathlib", git := git, rev := rev }
+    extras := rootRequires.filter (·.name != "mathlib")
+  }
 
 def loadRootMathlibDependency (root : System.FilePath) : IO DependencySpec :=
   return (← loadRootDependencies root).mathlib
@@ -1311,22 +1340,38 @@ def problemImportHeader (root : System.FilePath) (moduleName : String) : IO Stri
   let imports ← problemWorkspaceImports root moduleName
   return String.join (imports.toList.map fun m => s!"import {m}\n")
 
-/-- The `[[require]]` entries for a workspace whose modules import `imports`:
-each extra root require whose name is the first component of some import, in
-root lakefile order, followed by `mathlib`. Tooling packages in the root
-lakefile are never selected, because no problem imports them.
+/-- The `[[require]]` entries for a workspace whose modules import `imports`
+(as returned by `problemWorkspaceImports`, so repo-local imports have already
+been followed): each extra root require whose `name` equals the first
+component of some imported module, in root lakefile order, followed by
+`mathlib`. For example `import TauCeti.Foo.Bar` selects the require named
+`TauCeti`. Tooling requires in the root lakefile are never selected, because
+no problem imports them. Fails if a selected require cannot be reproduced.
+
+Known limitation: a package whose library root differs from its package name
+(say package `foo-bar` providing modules `FooBar.*`) is not matched. Its
+workspace then lacks the require, and the workspace build fails loudly on the
+missing import rather than silently changing the statement.
 
 Mathlib must come last. When two requires share a transitive dependency
 (batteries, aesop, Qq, ...), Lake resolves it from the later require, so
 putting an extra package after Mathlib would make `lake update` pick up that
 package's (typically older) pins instead of Mathlib's. -/
 def workspaceRequires (deps : RootDependencies) (imports : Array String) :
-    Array DependencySpec :=
+    Except String (Array DependencySpec) := do
   let roots : Std.HashSet String := imports.foldl (init := {}) fun acc m =>
     match (splitNameComponents m)[0]? with
     | some r => acc.insert r
     | none => acc
-  (deps.extras.filter fun d => roots.contains d.name).push deps.mathlib
+  let selected ← (deps.extras.filter fun r => roots.contains r.name).mapM (·.toSpec)
+  return selected.push deps.mathlib
+
+/-- `workspaceRequires` for the workspace generated from `moduleName`. -/
+def problemWorkspaceRequires (root : System.FilePath) (deps : RootDependencies)
+    (problemId moduleName : String) : IO (Array DependencySpec) := do
+  match workspaceRequires deps (← problemWorkspaceImports root moduleName) with
+  | .ok specs => pure specs
+  | .error e => throw <| IO.userError s!"Problem '{problemId}': {e}"
 
 /-! ## ILean metadata -/
 
@@ -2944,6 +2989,25 @@ private def renderReadmeLines (entry : EvalProblemMetadata)
       ]
   return lines ++ body
 
+/-- A TOML basic string literal for `s`: backslash, double quote and control
+characters are escaped; anything else (in particular every ordinary package
+name, URL and revision) is emitted verbatim between double quotes. -/
+def tomlBasicString (s : String) : String := Id.run do
+  let mut out := "\""
+  for c in s.toList do
+    out := match c with
+      | '\\' => out ++ "\\\\"
+      | '"' => out ++ "\\\""
+      | '\n' => out ++ "\\n"
+      | '\t' => out ++ "\\t"
+      | '\r' => out ++ "\\r"
+      | c =>
+          if c.toNat < 0x20 || c.toNat == 0x7f then
+            let hex := String.mk (Nat.toDigits 16 c.toNat)
+            out ++ "\\u" ++ String.mk (List.replicate (4 - hex.length) '0') ++ hex
+          else out.push c
+  return out.push '"'
+
 /-- Render a workspace `lakefile.toml`. `workspaceDeps` is emitted in the given
 order; see `workspaceRequires` for why Mathlib must be last. -/
 def lakefileToml (problemId : String) (workspaceDeps : Array DependencySpec)
@@ -2954,9 +3018,9 @@ def lakefileToml (problemId : String) (workspaceDeps : Array DependencySpec)
     else ""
   let requireBlocks := String.join <| workspaceDeps.toList.map fun dep =>
     "[[require]]\n" ++
-    s!"name = \"{dep.name}\"\n" ++
-    s!"git = \"{dep.git}\"\n" ++
-    s!"rev = \"{dep.rev}\"\n\n"
+    s!"name = {tomlBasicString dep.name}\n" ++
+    s!"git = {tomlBasicString dep.git}\n" ++
+    s!"rev = {tomlBasicString dep.rev}\n\n"
   s!"name = \"{problemId}\"\n" ++
   "testDriver = \"workspace_test\"\n" ++
   "defaultTargets = [\"Challenge\", \"Solution\", \"Submission\"]\n\n" ++
@@ -3188,7 +3252,7 @@ private def renderWorkspaceMultiHole (root : System.FilePath) (entry : EvalProbl
     if hasChallengeDeps then removeDuplicatedReducibilityAttributes helperStripped depsHelpers
     else helperStripped
   let moduleImports ← problemImportHeader root entry.moduleName
-  let workspaceDeps := workspaceRequires deps (← problemWorkspaceImports root entry.moduleName)
+  let workspaceDeps ← problemWorkspaceRequires root deps entry.id entry.moduleName
   let baseImport := if hasChallengeDeps then "import ChallengeDeps\n\n" else moduleImports ++ "\n"
   let challengeBodyStripped := stripProblemMarkers helperStripped localImports
   let challengeBody :=
@@ -3266,7 +3330,7 @@ private def renderWorkspaceSingleHole (root : System.FilePath) (entry : EvalProb
   let challengeDeps? ← renderChallengeDeps root entry extracted localImports
   let hasChallengeDeps := challengeDeps?.isSome
   let moduleImports ← problemImportHeader root entry.moduleName
-  let workspaceDeps := workspaceRequires deps (← problemWorkspaceImports root entry.moduleName)
+  let workspaceDeps ← problemWorkspaceRequires root deps entry.id entry.moduleName
   let challengeImport :=
     if hasChallengeDeps then "import ChallengeDeps\n\n" else moduleImports ++ "\n"
   let solutionImports :=

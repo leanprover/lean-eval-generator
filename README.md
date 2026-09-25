@@ -27,3 +27,25 @@ The consumer owns hole resolution. A consumer resolves declarations under its
 pinned target environment, then passes the resulting ranges and dependency
 data to this renderer. Consumer-specific fixtures and source trees do not
 belong in this foundation package.
+
+## Workspace dependencies
+
+Every generated `lakefile.toml` requires Mathlib at the pinned revision. A
+problem may also import modules from another package. The library API reads
+the candidate packages from the consumer's root `lakefile.toml`
+(`loadRootDependencies`); a CLI request lists them in the optional
+`dependencies` array of `{name, git, rev}` pins, and omitting that array means
+Mathlib only. A candidate is required by a workspace exactly when its `name`
+equals the first component of a module the problem imports, after following
+repo-local imports: `import TauCeti.Foo.Bar` selects the package named
+`TauCeti`. Tooling packages are therefore never required, because no problem
+imports them. Selected packages are emitted in root order before Mathlib,
+which stays last so that Lake resolves shared transitive dependencies from
+Mathlib's pins.
+
+A selected root require must be a plain git require with a non-empty `git` and
+`rev`; `subDir`, `scope`, `options`, a table-valued `git` or any other field is
+an error, since the workspace would not reproduce it. Unselected requires are
+not checked. A package whose library root differs from its package name is not
+matched; the generated workspace then fails to build on the missing import
+rather than silently changing the statement.

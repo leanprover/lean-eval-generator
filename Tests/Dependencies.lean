@@ -18,10 +18,16 @@ private def rootLakefile : String :=
   "[[require]]\nname = \"TauCeti\"\n" ++
   "git = \"https://github.com/TauCetiProject/TauCeti\"\n" ++
   s!"rev = \"{tauCetiRev}\"\n\n" ++
+  -- Tooling requires that no problem imports may use any Lake syntax: none of
+  -- these is validated unless a problem selects it.
   "[[require]]\nname = \"Cli\"\n" ++
-  "git = \"https://github.com/leanprover/lean4-cli\"\n" ++
-  "rev = \"e92c9f15fdfacc8536f31cfb3b7ad26c3c8cd204\"\n\n" ++
-  "[[require]]\nname = \"LocalTool\"\npath = \"tools/local\"\n"
+  "git = \"https://github.com/leanprover/lean4-cli\"\n\n" ++
+  "[[require]]\nname = \"LocalTool\"\npath = \"tools/local\"\n\n" ++
+  "[[require]]\nname = \"Reservoir\"\nscope = \"someone\"\nversion = \"1.0\"\n\n" ++
+  "[[require]]\nname = \"SubDirPkg\"\ngit = \"https://example.com/x\"\n" ++
+  "rev = \"abc\"\nsubDir = \"pkg\"\n\n" ++
+  "[[require]]\nname = \"TableGit\"\ngit = { url = \"https://example.com/y\" }\n" ++
+  "rev = \"abc\"\n"
 
 private def requireBlock (name git rev : String) : String :=
   s!"[[require]]\nname = \"{name}\"\ngit = \"{git}\"\nrev = \"{rev}\"\n\n"
@@ -49,7 +55,19 @@ private def writeModule (root : System.FilePath) (moduleName source : String) : 
 
 private def requiresFor (root : System.FilePath) (deps : RootDependencies)
     (moduleName : String) : IO (Array DependencySpec) :=
-  return workspaceRequires deps (← problemWorkspaceImports root moduleName)
+  problemWorkspaceRequires root deps moduleName moduleName
+
+/-- Selecting the require that `import {package}.X` pulls in must fail with a
+message containing `expected`. -/
+private def expectSelectionError (deps : RootDependencies) (package expected : String) :
+    IO Unit := do
+  match workspaceRequires deps #[s!"{package}.X", "Mathlib.Logic.Basic"] with
+  | .ok specs =>
+      throw <| IO.userError
+        s!"selecting {package} should fail, but gave {specs.map (·.name)}"
+  | .error e =>
+      unless (e.splitOn expected).length > 1 do
+        throw <| IO.userError s!"selecting {package}: error {e.quote} lacks {expected.quote}"
 
 private def names (specs : Array DependencySpec) : String :=
   toString (specs.map (·.name))
@@ -67,8 +85,16 @@ def main : IO Unit := do
 
     let deps ← loadRootDependencies root
     expectEq "mathlib pin" deps.mathlib.rev mathlibRev
-    expectEq "extra requires" (names deps.extras) "#[TauCeti, Cli]"
+    expectEq "extra requires" (toString (deps.extras.map (·.name)))
+      "#[TauCeti, Cli, LocalTool, Reservoir, SubDirPkg, TableGit]"
     expectEq "legacy loader" (← loadRootMathlibDependency root).rev mathlibRev
+
+    -- Unreproducible requires only fail once a problem selects them.
+    expectSelectionError deps "Cli" "does not pin a non-empty `rev`"
+    expectSelectionError deps "LocalTool" "`path`"
+    expectSelectionError deps "Reservoir" "`scope`, `version`"
+    expectSelectionError deps "SubDirPkg" "`subDir`"
+    expectSelectionError deps "TableGit" "table-valued `git`"
 
     let cfsg ← requiresFor root deps "LeanEval.Cfsg"
     expectEq "imported extra require precedes mathlib; Cli is not required"
@@ -89,9 +115,19 @@ def main : IO Unit := do
       (mathlibOnlyLakefile "plain")
     -- A bare mathlib pin (the pre-existing API) coerces to the same result.
     expectEq "coerced mathlib pin"
-      (lakefileToml "plain" (workspaceRequires deps.mathlib #["TauCeti.X"])
+      (lakefileToml "plain" (← IO.ofExcept (workspaceRequires deps.mathlib #["TauCeti.X"]))
         (withChallengeDeps := false))
       (mathlibOnlyLakefile "plain")
+
+    -- Values are TOML-escaped; ordinary values are emitted verbatim.
+    expectEq "plain TOML string" (tomlBasicString "https://x.org/a-b_c.git")
+      "\"https://x.org/a-b_c.git\""
+    expectEq "escaped TOML string" (tomlBasicString "a\"b\\c\nd\x01")
+      "\"a\\\"b\\\\c\\nd\\u0001\""
+    let odd : DependencySpec := { name := "Odd", git := "https://x.org/\"q\"", rev := "r\\1" }
+    unless ((lakefileToml "odd" #[odd] (withChallengeDeps := false)).splitOn
+        "git = \"https://x.org/\\\"q\\\"\"\nrev = \"r\\\\1\"\n").length == 2 do
+      throw <| IO.userError "lakefile require values are not TOML-escaped"
   finally
     IO.FS.removeDirAll root
   IO.println "dependency tests passed"

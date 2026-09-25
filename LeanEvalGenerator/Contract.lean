@@ -57,6 +57,12 @@ structure GenerateRequest where
   contextRoot : String
   leanToolchain : String
   mathlib : DependencyPin
+  /-- Optional non-mathlib git requires, in the order a workspace should
+  require them. Each is emitted, before Mathlib, into the workspace of every
+  problem that imports one of its modules (the rule is
+  `LeanEvalGenerator.Core.workspaceRequires`). Omitting the field means no
+  extra requires, which is how every earlier version 1 request behaves. -/
+  dependencies : Option (Array DependencyPin) := none
   templates : TemplateInputs
   problems : Array ProblemInput
   deriving FromJson
@@ -75,6 +81,18 @@ private def validateRequest (request : GenerateRequest) : IO Unit := do
     throw <| IO.userError "The dependency pin must be named `mathlib`."
   if request.mathlib.git.isEmpty || request.mathlib.rev.isEmpty then
     throw <| IO.userError "The mathlib git and rev pins must be non-empty."
+  let mut dependencyNames : Array String := #[]
+  for dep in request.dependencies.getD #[] do
+    if dep.name.isEmpty then
+      throw <| IO.userError "Dependency names must be non-empty."
+    if dep.name == "mathlib" then
+      throw <| IO.userError
+        "`dependencies` must not contain `mathlib`; it is pinned by the `mathlib` field."
+    if dependencyNames.contains dep.name then
+      throw <| IO.userError s!"Duplicate dependency `{dep.name}`."
+    if dep.git.isEmpty || dep.rev.isEmpty then
+      throw <| IO.userError s!"Dependency `{dep.name}` git and rev pins must be non-empty."
+    dependencyNames := dependencyNames.push dep.name
   let mut problemIds : Array String := #[]
   for problem in request.problems do
     if problemIds.contains problem.id then
@@ -190,16 +208,18 @@ ordered and byte-stable, including complete file contents and SHA-256 digests. -
 def render (request : GenerateRequest) : IO String := do
   validateRequest request
   let root : System.FilePath := request.contextRoot
-  let mathlib : LeanEvalGenerator.Core.DependencySpec := {
-    name := request.mathlib.name
-    git := request.mathlib.git
-    rev := request.mathlib.rev
+  let spec (pin : DependencyPin) : LeanEvalGenerator.Core.DependencySpec :=
+    { name := pin.name, git := pin.git, rev := pin.rev }
+  let deps : LeanEvalGenerator.Core.RootDependencies := {
+    mathlib := spec request.mathlib
+    extras := (request.dependencies.getD #[]).map
+      (LeanEvalGenerator.Core.RootRequire.ofSpec ∘ spec)
   }
   let mut files : Array LeanEvalGenerator.Core.OJson := #[]
   for problem in request.problems do
     validateProblem root problem
     let rendered ← LeanEvalGenerator.Core.renderWorkspace root (metadata problem)
-      (problem.resolvedHoles.map extracted) request.leanToolchain { mathlib }
+      (problem.resolvedHoles.map extracted) request.leanToolchain deps
       request.templates.workspaceTest
     for (path, content) in rendered do
       files := files.push <| fileJson problem.id path content (← sha256 content)
@@ -217,10 +237,14 @@ private def ensureKnownFields (label : String) (allowed : Array String)
 
 private def validateJsonShape (value : Json) : Except String Unit := do
   ensureKnownFields "request" #[
-    "schemaVersion", "contextRoot", "leanToolchain", "mathlib", "templates", "problems"
+    "schemaVersion", "contextRoot", "leanToolchain", "mathlib", "dependencies", "templates",
+    "problems"
   ] value
   let mathlib ← value.getObjVal? "mathlib"
   ensureKnownFields "mathlib" #["name", "git", "rev"] mathlib
+  if let .ok deps := value.getObjVal? "dependencies" then
+    for dep in ← deps.getArr? do
+      ensureKnownFields "dependency" #["name", "git", "rev"] dep
   let templates ← value.getObjVal? "templates"
   ensureKnownFields "templates" #["workspaceTest"] templates
   let problems ← (← value.getObjVal? "problems").getArr?

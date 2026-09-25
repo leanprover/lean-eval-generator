@@ -69,6 +69,54 @@ def assert_rejected(payload: dict[str, object], message: str) -> None:
     assert message in result.stderr, result.stderr
 
 
+def lakefile_for(payload: dict[str, object]) -> str:
+    result = invoke(json.dumps(payload))
+    assert result.returncode == 0, result.stderr
+    files = json.loads(result.stdout)["files"]
+    [lakefile] = [item["content"] for item in files if item["path"] == "lakefile.toml"]
+    return lakefile
+
+
+def check_extra_dependencies() -> None:
+    """Render a problem importing a non-Mathlib package through the CLI."""
+    mathlib = '[[require]]\nname = "mathlib"\ngit = "x"\nrev = "y"\n\n'
+    tauceti = '[[require]]\nname = "TauCeti"\ngit = "https://t.example"\nrev = "abc"\n\n'
+    dependencies = [
+        {"name": "TauCeti", "git": "https://t.example", "rev": "abc"},
+        {"name": "Cli", "git": "https://c.example", "rev": "def"},
+    ]
+    with tempfile.TemporaryDirectory() as directory:
+        context = Path(directory)
+        ilean = context / ".lake/build/lib/lean"
+        ilean.mkdir(parents=True)
+        for module, header in [
+            ("WithTauCeti", "import TauCeti.GroupTheory.Classification\n\n"),
+            ("MathlibOnly", "import Mathlib.Logic.Basic\n\n"),
+        ]:
+            content = header + "theorem fixture : True := by sorry\n"
+            (context / f"{module}.lean").write_text(content, encoding="utf-8")
+            (ilean / f"{module}.ilean").write_text('{"decls": {}}', encoding="utf-8")
+            fixture = problem()
+            fixture["moduleName"] = module
+            fixture["moduleContent"] = content
+            hole = fixture["resolvedHoles"][0]
+            hole["module"] = module
+            hole["declarationName"] = "fixture"
+            hole["startLine"] = hole["endLine"] = 3
+            payload = request_with(fixture)
+            payload["contextRoot"] = str(context)
+            baseline = lakefile_for(payload)
+            payload["dependencies"] = dependencies
+            lakefile = lakefile_for(payload)
+            assert "Cli" not in lakefile, lakefile
+            if module == "WithTauCeti":
+                assert baseline.count("[[require]]") == 1, baseline
+                assert tauceti + mathlib in lakefile, lakefile
+                assert lakefile.count("[[require]]") == 2, lakefile
+            else:
+                assert lakefile == baseline, lakefile
+
+
 def main() -> int:
     subprocess.run(["lake", "build"], cwd=ROOT, check=True)
     subprocess.run(
@@ -151,6 +199,18 @@ def main() -> int:
         expected_ilean = context / ".lake/build/lib/lean/Arxiv/0912.2382/Fixture.ilean"
         assert str(expected_ilean) in result.stderr, result.stderr
         assert "Arxiv/«0912/2382»" not in result.stderr
+
+    extra_named_mathlib = request_with(problem())
+    extra_named_mathlib["dependencies"] = [{"name": "mathlib", "git": "x", "rev": "y"}]
+    assert_rejected(extra_named_mathlib, "must not contain `mathlib`")
+
+    dependency_unknown = request_with(problem())
+    dependency_unknown["dependencies"] = [
+        {"name": "TauCeti", "git": "x", "rev": "y", "subDir": "z"}
+    ]
+    assert_rejected(dependency_unknown, "dependency contains an unknown field")
+
+    check_extra_dependencies()
 
     print("PASS schema errors stay off stdout and quoted source/ilean paths resolve")
     return 0

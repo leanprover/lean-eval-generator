@@ -17,6 +17,10 @@
     "contextRoot": { "type": "string", "minLength": 1 },
     "leanToolchain": { "type": "string", "minLength": 1 },
     "mathlib": { "$ref": "#/$defs/dependency" },
+    "dependencies": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/extraDependency" }
+    },
     "templates": {
       "type": "object",
       "additionalProperties": false,
@@ -36,6 +40,16 @@
       "required": ["name", "git", "rev"],
       "properties": {
         "name": { "const": "mathlib" },
+        "git": { "type": "string", "minLength": 1 },
+        "rev": { "type": "string", "minLength": 1 }
+      }
+    },
+    "extraDependency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "git", "rev"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "not": { "const": "mathlib" } },
         "git": { "type": "string", "minLength": 1 },
         "rev": { "type": "string", "minLength": 1 }
       }
