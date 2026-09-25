@@ -210,6 +210,11 @@ def main() -> int:
     ]
     assert_rejected(dependency_unknown, "dependency contains an unknown field")
 
+    for bad_id in ["", "-leading", 'a"b', "a b", "a\\b", "a.b", "é"]:
+        invalid_id = problem()
+        invalid_id["id"] = bad_id
+        assert_rejected(request_with(invalid_id), "is invalid")
+
     check_extra_dependencies()
 
     print("PASS schema errors stay off stdout and quoted source/ilean paths resolve")

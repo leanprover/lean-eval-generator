@@ -141,11 +141,8 @@ private def requiredField (path : System.FilePath) (depName field : String)
       throw <| IO.userError
         s!"{depName} dependency in {path} is missing a non-empty '{field}' field"
 
-/-- Read the root `lakefile.toml`: the single `mathlib` require, which must
-have non-empty `git` and `rev`, and every other require as written. Other
-requires are not validated here; a problem that selects one fails if it
-cannot be reproduced (see `RootRequire.toSpec`). -/
-def loadRootDependencies (root : System.FilePath) : IO RootDependencies := do
+private def loadRootDependenciesCore (root : System.FilePath) (strictMathlib : Bool) :
+    IO RootDependencies := do
   let path := root / "lakefile.toml"
   let rootRequires ← loadRootRequires path
   let mathlib := rootRequires.filter fun r => r.name == "mathlib"
@@ -154,6 +151,11 @@ def loadRootDependencies (root : System.FilePath) : IO RootDependencies := do
   if mathlib.size > 1 then
     throw <| IO.userError s!"Found multiple mathlib dependencies in {path}"
   let entry := mathlib[0]!
+  if strictMathlib && !entry.unsupportedFields.isEmpty then
+    throw <| IO.userError
+      s!"mathlib dependency in {path} uses fields a generated workspace does not \
+        reproduce: {", ".intercalate entry.unsupportedFields.toList}. Only `name`, \
+        `git` and `rev` are supported."
   let git ← requiredField path "mathlib" "git" entry.git
   let rev ← requiredField path "mathlib" "rev" entry.rev
   return {
@@ -161,8 +163,18 @@ def loadRootDependencies (root : System.FilePath) : IO RootDependencies := do
     extras := rootRequires.filter (·.name != "mathlib")
   }
 
+/-- Read the root `lakefile.toml` for workspace generation: the single
+`mathlib` require, which must be a plain git require with non-empty `git` and
+`rev` and no other fields, and every other require as written. Other requires
+are not validated here; a problem that selects one fails if it cannot be
+reproduced (see `RootRequire.toSpec`). -/
+def loadRootDependencies (root : System.FilePath) : IO RootDependencies :=
+  loadRootDependenciesCore root (strictMathlib := true)
+
+/-- The root `mathlib` pin. Unlike `loadRootDependencies`, this ignores
+fields beyond `name`, `git` and `rev`, as it always has. -/
 def loadRootMathlibDependency (root : System.FilePath) : IO DependencySpec :=
-  return (← loadRootDependencies root).mathlib
+  return (← loadRootDependenciesCore root (strictMathlib := false)).mathlib
 
 /-! ## ExtractedTheorem (subprocess result) -/
 
@@ -3021,7 +3033,7 @@ def lakefileToml (problemId : String) (workspaceDeps : Array DependencySpec)
     s!"name = {tomlBasicString dep.name}\n" ++
     s!"git = {tomlBasicString dep.git}\n" ++
     s!"rev = {tomlBasicString dep.rev}\n\n"
-  s!"name = \"{problemId}\"\n" ++
+  s!"name = {tomlBasicString problemId}\n" ++
   "testDriver = \"workspace_test\"\n" ++
   "defaultTargets = [\"Challenge\", \"Solution\", \"Submission\"]\n\n" ++
   "[leanOptions]\n" ++

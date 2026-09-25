@@ -141,8 +141,10 @@ private def extracted (hole : ResolvedHole) : LeanEvalGenerator.Core.ExtractedTh
 }
 
 private def validateProblem (root : System.FilePath) (problem : ProblemInput) : IO Unit := do
-  if problem.id.isEmpty then
-    throw <| IO.userError "Problem id must be non-empty."
+  unless LeanEvalGenerator.Core.isValidProblemId problem.id do
+    throw <| IO.userError
+      s!"Problem id {problem.id.quote} is invalid. Use only letters, digits, '_' or '-', \
+        starting with a letter or digit."
   if problem.title.isEmpty then
     throw <| IO.userError s!"Problem `{problem.id}` title must be non-empty."
   if problem.moduleName.isEmpty then

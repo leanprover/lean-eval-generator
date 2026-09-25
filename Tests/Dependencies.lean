@@ -128,6 +128,25 @@ def main : IO Unit := do
     unless ((lakefileToml "odd" #[odd] (withChallengeDeps := false)).splitOn
         "git = \"https://x.org/\\\"q\\\"\"\nrev = \"r\\\\1\"\n").length == 2 do
       throw <| IO.userError "lakefile require values are not TOML-escaped"
+
+    -- Generation rejects a mathlib require that a workspace would not
+    -- reproduce faithfully; the legacy mathlib loader still ignores the field.
+    let subDirRoot := root / "subdir-mathlib"
+    IO.FS.createDirAll subDirRoot
+    IO.FS.writeFile (subDirRoot / "lakefile.toml") <|
+      "name = \"fixture\"\n\n" ++ mathlibBlock.dropEnd 1 ++ "subDir = \"x\"\n"
+    match ← (loadRootDependencies subDirRoot).toBaseIO with
+    | .ok _ => throw <| IO.userError "mathlib require with `subDir` was accepted"
+    | .error e =>
+        unless ((toString e).splitOn "`subDir`").length > 1 do
+          throw <| IO.userError s!"unexpected mathlib `subDir` error: {e}"
+    expectEq "legacy loader ignores mathlib subDir"
+      (← loadRootMathlibDependency subDirRoot).rev mathlibRev
+
+    -- The workspace name is emitted as a TOML string too.
+    unless ((lakefileToml "a\"b" #[] (withChallengeDeps := false)).startsWith
+        "name = \"a\\\"b\"\n") do
+      throw <| IO.userError "workspace name is not TOML-escaped"
   finally
     IO.FS.removeDirAll root
   IO.println "dependency tests passed"

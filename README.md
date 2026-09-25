@@ -49,3 +49,9 @@ an error, since the workspace would not reproduce it. Unselected requires are
 not checked. A package whose library root differs from its package name is not
 matched; the generated workspace then fails to build on the missing import
 rather than silently changing the statement.
+
+The emitted requires are pruned to what the problem imports, but their
+transitive dependencies are not pinned in the workspace lakefile. A consumer
+that builds a generated workspace should install the root `lake-manifest.json`
+into it (as lean-eval's CI does) rather than running `lake update`, so that
+every package resolves to the same revision as in the root workspace.
