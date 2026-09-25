@@ -199,7 +199,7 @@ def render (request : GenerateRequest) : IO String := do
   for problem in request.problems do
     validateProblem root problem
     let rendered ← LeanEvalGenerator.Core.renderWorkspace root (metadata problem)
-      (problem.resolvedHoles.map extracted) request.leanToolchain mathlib
+      (problem.resolvedHoles.map extracted) request.leanToolchain { mathlib }
       request.templates.workspaceTest
     for (path, content) in rendered do
       files := files.push <| fileJson problem.id path content (← sha256 content)

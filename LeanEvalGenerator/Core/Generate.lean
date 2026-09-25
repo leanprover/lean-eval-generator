@@ -42,7 +42,7 @@ def ignoredPathNames : Array String := #[".lake", "build", ".cache", "lake-manif
 def loadWorkspaceTestTemplate (root : System.FilePath) : IO String :=
   IO.FS.readFile (root / "templates" / "WorkspaceTest.lean")
 
-/-! ## Mathlib dependency -/
+/-! ## Root dependencies -/
 
 structure DependencySpec where
   name : String
@@ -64,8 +64,21 @@ private instance : DecodeToml RawRequire where
     let rev? : Option String ← t.decode? `rev
     return { name := name, git := git?, rev := rev? }
 
-def loadRootMathlibDependency (root : System.FilePath) : IO DependencySpec := do
-  let path := root / "lakefile.toml"
+/-- The dependencies a generated workspace may require, read from the root
+lakefile: the mandatory `mathlib` pin, plus every other git-pinned `[[require]]`
+in root lakefile order. An extra require is only emitted into a workspace whose
+problem imports one of its modules; see `workspaceRequires`. -/
+structure RootDependencies where
+  mathlib : DependencySpec
+  extras : Array DependencySpec := #[]
+  deriving Inhabited
+
+/-- A bare `mathlib` pin is a complete dependency set with no extras, so
+callers holding only a `DependencySpec` keep working unchanged. -/
+instance : Coe DependencySpec RootDependencies where
+  coe mathlib := { mathlib }
+
+private def loadRootRequires (path : System.FilePath) : IO (Array RawRequire) := do
   let contents ← IO.FS.readFile path
   let inputCtx := mkInputContext contents path.toString
   let table ←
@@ -75,36 +88,52 @@ def loadRootMathlibDependency (root : System.FilePath) : IO DependencySpec := do
   let decoded :
       EStateM.Result Unit (Array DecodeError) (Array RawRequire) :=
     (Lake.Toml.Table.decode (α := Array RawRequire) table `require).run #[]
-  let requires ←
-    match decoded with
-    | .ok arr errors =>
-        if errors.isEmpty then pure arr
-        else throw <| IO.userError (decodeErrorsToString errors)
-    | .error _ errors =>
-        throw <| IO.userError (decodeErrorsToString errors)
-  let mathlib := requires.filter fun r => r.name == "mathlib"
+  match decoded with
+  | .ok arr errors =>
+      if errors.isEmpty then pure arr
+      else throw <| IO.userError (decodeErrorsToString errors)
+  | .error _ errors =>
+      throw <| IO.userError (decodeErrorsToString errors)
+
+private def requiredField (path : System.FilePath) (depName field : String)
+    (value? : Option String) : IO String := do
+  match value?.map (·.trim) with
+  | some v =>
+      if v.isEmpty then
+        throw <| IO.userError
+          s!"{depName} dependency in {path} is missing a non-empty '{field}' field"
+      else pure v
+  | none =>
+      throw <| IO.userError
+        s!"{depName} dependency in {path} is missing a non-empty '{field}' field"
+
+/-- Read the root `lakefile.toml`: the single `mathlib` require (which must
+have non-empty `git` and `rev`), and every other require that has a `git`
+field, which must then also pin a non-empty `rev`. Requires without `git`
+(path or Reservoir dependencies) cannot be reproduced in a standalone
+workspace and are ignored. -/
+def loadRootDependencies (root : System.FilePath) : IO RootDependencies := do
+  let path := root / "lakefile.toml"
+  let rootRequires ← loadRootRequires path
+  let mathlib := rootRequires.filter fun r => r.name == "mathlib"
   if mathlib.isEmpty then
     throw <| IO.userError s!"Could not find a mathlib dependency in {path}"
   if mathlib.size > 1 then
     throw <| IO.userError s!"Found multiple mathlib dependencies in {path}"
   let entry := mathlib[0]!
-  let git ← match entry.git with
-    | some g =>
-        let g := g.trim
-        if g.isEmpty then
-          throw <| IO.userError s!"mathlib dependency in {path} is missing a non-empty 'git' field"
-        else pure g
-    | none =>
-        throw <| IO.userError s!"mathlib dependency in {path} is missing a non-empty 'git' field"
-  let rev ← match entry.rev with
-    | some r =>
-        let r := r.trim
-        if r.isEmpty then
-          throw <| IO.userError s!"mathlib dependency in {path} is missing a non-empty 'rev' field"
-        else pure r
-    | none =>
-        throw <| IO.userError s!"mathlib dependency in {path} is missing a non-empty 'rev' field"
-  return { name := "mathlib", git := git, rev := rev }
+  let git ← requiredField path "mathlib" "git" entry.git
+  let rev ← requiredField path "mathlib" "rev" entry.rev
+  let mut extras : Array DependencySpec := #[]
+  for r in rootRequires do
+    if r.name == "mathlib" then continue
+    let some git := r.git | continue
+    let git ← requiredField path r.name "git" (some git)
+    let rev ← requiredField path r.name "rev" r.rev
+    extras := extras.push { name := r.name, git, rev }
+  return { mathlib := { name := "mathlib", git := git, rev := rev }, extras }
+
+def loadRootMathlibDependency (root : System.FilePath) : IO DependencySpec :=
+  return (← loadRootDependencies root).mathlib
 
 /-! ## ExtractedTheorem (subprocess result) -/
 
@@ -1251,6 +1280,15 @@ private partial def collectWorkspaceImports (root : System.FilePath) (moduleName
       unless (← out.get).contains imported do
         out.modify (·.push imported)
 
+/-- The external modules a generated workspace imports, in the order
+`problemImportHeader` emits them. -/
+def problemWorkspaceImports (root : System.FilePath) (moduleName : String) :
+    IO (Array String) := do
+  let visited ← IO.mkRef ({} : Std.HashSet String)
+  let out ← IO.mkRef (#[] : Array String)
+  collectWorkspaceImports root moduleName visited out
+  out.get
+
 /-- The `import` header a generated workspace needs to reproduce the trusted
 module's elaboration context.
 
@@ -1270,11 +1308,25 @@ Known limitation: flattening several repo-local modules into one
 so an inlined module can see a name that only a later one introduced. Avoiding
 that would mean emitting one workspace module per source module. -/
 def problemImportHeader (root : System.FilePath) (moduleName : String) : IO String := do
-  let visited ← IO.mkRef ({} : Std.HashSet String)
-  let out ← IO.mkRef (#[] : Array String)
-  collectWorkspaceImports root moduleName visited out
-  let imports ← out.get
+  let imports ← problemWorkspaceImports root moduleName
   return String.join (imports.toList.map fun m => s!"import {m}\n")
+
+/-- The `[[require]]` entries for a workspace whose modules import `imports`:
+each extra root require whose name is the first component of some import, in
+root lakefile order, followed by `mathlib`. Tooling packages in the root
+lakefile are never selected, because no problem imports them.
+
+Mathlib must come last. When two requires share a transitive dependency
+(batteries, aesop, Qq, ...), Lake resolves it from the later require, so
+putting an extra package after Mathlib would make `lake update` pick up that
+package's (typically older) pins instead of Mathlib's. -/
+def workspaceRequires (deps : RootDependencies) (imports : Array String) :
+    Array DependencySpec :=
+  let roots : Std.HashSet String := imports.foldl (init := {}) fun acc m =>
+    match (splitNameComponents m)[0]? with
+    | some r => acc.insert r
+    | none => acc
+  (deps.extras.filter fun d => roots.contains d.name).push deps.mathlib
 
 /-! ## ILean metadata -/
 
@@ -2892,21 +2944,25 @@ private def renderReadmeLines (entry : EvalProblemMetadata)
       ]
   return lines ++ body
 
-private def lakefileToml (problemId : String) (mathlibDep : DependencySpec)
+/-- Render a workspace `lakefile.toml`. `workspaceDeps` is emitted in the given
+order; see `workspaceRequires` for why Mathlib must be last. -/
+def lakefileToml (problemId : String) (workspaceDeps : Array DependencySpec)
     (withChallengeDeps : Bool) : String :=
   let challengeDepsLib :=
     if withChallengeDeps then
       "[[lean_lib]]\nname = \"ChallengeDeps\"\n\n"
     else ""
+  let requireBlocks := String.join <| workspaceDeps.toList.map fun dep =>
+    "[[require]]\n" ++
+    s!"name = \"{dep.name}\"\n" ++
+    s!"git = \"{dep.git}\"\n" ++
+    s!"rev = \"{dep.rev}\"\n\n"
   s!"name = \"{problemId}\"\n" ++
   "testDriver = \"workspace_test\"\n" ++
   "defaultTargets = [\"Challenge\", \"Solution\", \"Submission\"]\n\n" ++
   "[leanOptions]\n" ++
   "autoImplicit = false\n\n" ++
-  "[[require]]\n" ++
-  s!"name = \"{mathlibDep.name}\"\n" ++
-  s!"git = \"{mathlibDep.git}\"\n" ++
-  s!"rev = \"{mathlibDep.rev}\"\n\n" ++
+  requireBlocks ++
   challengeDepsLib ++
   "[[lean_lib]]\nname = \"Challenge\"\n\n" ++
   "[[lean_lib]]\nname = \"Solution\"\n\n" ++
@@ -2917,7 +2973,7 @@ private def lakefileToml (problemId : String) (mathlibDep : DependencySpec)
 
 private def renderWorkspaceMultiHole (root : System.FilePath) (entry : EvalProblemMetadata)
     (extracteds : Array ExtractedTheorem) (toolchain : String)
-    (mathlibDep : DependencySpec) (workspaceTest : String) :
+    (deps : RootDependencies) (workspaceTest : String) :
     IO (Array (String × String)) := do
   let sourcePath := moduleSourcePath root entry.moduleName
   if !(← sourcePath.pathExists) then
@@ -3132,6 +3188,7 @@ private def renderWorkspaceMultiHole (root : System.FilePath) (entry : EvalProbl
     if hasChallengeDeps then removeDuplicatedReducibilityAttributes helperStripped depsHelpers
     else helperStripped
   let moduleImports ← problemImportHeader root entry.moduleName
+  let workspaceDeps := workspaceRequires deps (← problemWorkspaceImports root entry.moduleName)
   let baseImport := if hasChallengeDeps then "import ChallengeDeps\n\n" else moduleImports ++ "\n"
   let challengeBodyStripped := stripProblemMarkers helperStripped localImports
   let challengeBody :=
@@ -3179,7 +3236,8 @@ private def renderWorkspaceMultiHole (root : System.FilePath) (entry : EvalProbl
   let mut files : Array (String × String) := #[
     ("README.md", readme),
     ("lean-toolchain", toolchain'),
-    ("lakefile.toml", lakefileToml entry.id mathlibDep (withChallengeDeps := hasChallengeDeps)),
+    ("lakefile.toml",
+      lakefileToml entry.id workspaceDeps (withChallengeDeps := hasChallengeDeps)),
     ("Challenge.lean", challenge),
     ("Solution.lean", solutionBody),
     ("Submission.lean", submissionBody),
@@ -3194,7 +3252,7 @@ private def renderWorkspaceMultiHole (root : System.FilePath) (entry : EvalProbl
 /-! ## Single-hole rendering -/
 
 private def renderWorkspaceSingleHole (root : System.FilePath) (entry : EvalProblemMetadata)
-    (extracted : ExtractedTheorem) (toolchain : String) (mathlibDep : DependencySpec)
+    (extracted : ExtractedTheorem) (toolchain : String) (deps : RootDependencies)
     (workspaceTest : String) : IO (Array (String × String)) := do
   let sourcePath := moduleSourcePath root entry.moduleName
   let sourceText ← IO.FS.readFile sourcePath
@@ -3208,6 +3266,7 @@ private def renderWorkspaceSingleHole (root : System.FilePath) (entry : EvalProb
   let challengeDeps? ← renderChallengeDeps root entry extracted localImports
   let hasChallengeDeps := challengeDeps?.isSome
   let moduleImports ← problemImportHeader root entry.moduleName
+  let workspaceDeps := workspaceRequires deps (← problemWorkspaceImports root entry.moduleName)
   let challengeImport :=
     if hasChallengeDeps then "import ChallengeDeps\n\n" else moduleImports ++ "\n"
   let solutionImports :=
@@ -3283,7 +3342,8 @@ private def renderWorkspaceSingleHole (root : System.FilePath) (entry : EvalProb
   let mut files : Array (String × String) := #[
     ("README.md", readme),
     ("lean-toolchain", toolchain'),
-    ("lakefile.toml", lakefileToml entry.id mathlibDep (withChallengeDeps := hasChallengeDeps)),
+    ("lakefile.toml",
+      lakefileToml entry.id workspaceDeps (withChallengeDeps := hasChallengeDeps)),
     ("Challenge.lean", challengeFile),
     ("Solution.lean", solutionFile),
     ("Submission.lean", submissionFile),
@@ -3298,15 +3358,15 @@ private def renderWorkspaceSingleHole (root : System.FilePath) (entry : EvalProb
 /-- Render every file in a generated workspace. Mirrors `render_workspace`. -/
 def renderWorkspace (root : System.FilePath) (entry : EvalProblemMetadata)
     (extracteds : Array ExtractedTheorem) (toolchain : String)
-    (mathlibDep : DependencySpec) (workspaceTest : String) :
+    (deps : RootDependencies) (workspaceTest : String) :
     IO (Array (String × String)) := do
   let isMultiHole :=
     extracteds.size != 1 || extracteds[0]!.kind != "theorem"
   let baseFiles ←
     if isMultiHole then
-      renderWorkspaceMultiHole root entry extracteds toolchain mathlibDep workspaceTest
+      renderWorkspaceMultiHole root entry extracteds toolchain deps workspaceTest
     else
-      renderWorkspaceSingleHole root entry extracteds[0]! toolchain mathlibDep workspaceTest
+      renderWorkspaceSingleHole root entry extracteds[0]! toolchain deps workspaceTest
   let holesJson ← buildHolesMetadata root entry extracteds
   return baseFiles.push ("holes.json", holesJson)
 
@@ -3512,7 +3572,7 @@ def generate (root : System.FilePath) (selectedProblemId : Option String) (check
         pure problems
   validateHoleShape root selectedProblems
   let toolchain ← IO.FS.readFile (root / "lean-toolchain")
-  let mathlibDep ← loadRootMathlibDependency root
+  let deps ← loadRootDependencies root
   buildExtractor root selectedProblems
   let workspaceTest ← loadWorkspaceTestTemplate root
   let mut mismatches : Array String := #[]
@@ -3521,7 +3581,7 @@ def generate (root : System.FilePath) (selectedProblemId : Option String) (check
     for hole in entry.holes do
       let e ← extractOne root entry hole
       extracteds := extracteds.push e
-    let files ← renderWorkspace root entry extracteds toolchain mathlibDep workspaceTest
+    let files ← renderWorkspace root entry extracteds toolchain deps workspaceTest
     let problemDir := root / "generated" / entry.id
     let relDisplay := s!"generated/{entry.id}"
     if check then
