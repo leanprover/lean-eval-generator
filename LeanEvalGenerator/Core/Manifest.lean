@@ -17,7 +17,7 @@ private def isAsciiAlnum (c : Char) : Bool :=
   c.isAlpha || c.isDigit
 
 /-- Mirrors the Python `ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")`. -/
-private def isValidProblemId (s : String) : Bool :=
+def isValidProblemId (s : String) : Bool :=
   !s.isEmpty
     && isAsciiAlnum s.front
     && s.all (fun c => isAsciiAlnum c || c == '_' || c == '-')

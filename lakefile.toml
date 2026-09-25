@@ -14,3 +14,7 @@ root = "LeanEvalGenerator.Main"
 [[lean_exe]]
 name = "test_module_paths"
 root = "Tests.ModulePaths"
+
+[[lean_exe]]
+name = "test_dependencies"
+root = "Tests.Dependencies"
