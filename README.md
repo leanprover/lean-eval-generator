@@ -55,3 +55,9 @@ transitive dependencies are not pinned in the workspace lakefile. A consumer
 that builds a generated workspace should install the root `lake-manifest.json`
 into it (as lean-eval's CI does) rather than running `lake update`, so that
 every package resolves to the same revision as in the root workspace.
+
+To enable a package for solutions only, add `solution-dependencies.json` to the
+consumer root (`contextRoot` for JSON requests), for example:
+`[{"name": "lean-pool", "moduleRoots": ["LeanPool", "Challenge", "Solution"]}]`.
+The package must be pinned in the existing dependencies. It is included in every
+workspace; imports of its listed module roots in statements or local helpers are rejected.

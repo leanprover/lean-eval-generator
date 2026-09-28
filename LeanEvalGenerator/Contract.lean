@@ -213,6 +213,7 @@ def render (request : GenerateRequest) : IO String := do
   let spec (pin : DependencyPin) : LeanEvalGenerator.Core.DependencySpec :=
     { name := pin.name, git := pin.git, rev := pin.rev }
   let deps : LeanEvalGenerator.Core.RootDependencies := {
+    solutions := ← Core.loadSolutionDependencies request.contextRoot
     mathlib := spec request.mathlib
     extras := (request.dependencies.getD #[]).map
       (LeanEvalGenerator.Core.RootRequire.ofSpec ∘ spec)

@@ -147,6 +147,24 @@ def main : IO Unit := do
     unless ((lakefileToml "a\"b" #[] (withChallengeDeps := false)).startsWith
         "name = \"a\\\"b\"\n") do
       throw <| IO.userError "workspace name is not TOML-escaped"
+    -- Lean Pool is available without statement imports; TauCeti still works as before.
+    IO.FS.writeFile (root / "lakefile.toml") <|
+      rootLakefile ++ requireBlock "lean-pool" "https://example.com/lean-pool.git" "pool-pin"
+    IO.FS.writeFile (root / "solution-dependencies.json")
+      "[{\"name\":\"lean-pool\",\"moduleRoots\":[\"LeanPool\",\"Challenge\",\"Solution\"]}]"
+    let poolDeps ← loadRootDependencies root
+    expectEq "solution dependency without statement import"
+      (names (← requiresFor root poolDeps "LeanEval.Plain")) "#[lean-pool, mathlib]"
+    expectEq "solution dependency with TauCeti"
+      (names (← requiresFor root poolDeps "LeanEval.Cfsg")) "#[TauCeti, lean-pool, mathlib]"
+    expectSelectionError poolDeps "LeanPool" "solution-only"
+    expectSelectionError poolDeps "«LeanPool»" "solution-only"
+    writeModule root "LeanEval.Plain" "import LeanEval.PoolHelper\n"
+    writeModule root "LeanEval.PoolHelper" "import LeanPool.Basic\n"
+    match ← (requiresFor root poolDeps "LeanEval.Plain").toBaseIO with
+    | .ok _ => throw <| IO.userError "solution-only import through a helper was accepted"
+    | .error e =>
+        unless ((toString e).splitOn "solution-only").length > 1 do throw e
   finally
     IO.FS.removeDirAll root
   IO.println "dependency tests passed"

@@ -99,13 +99,26 @@ private def rootRequireOfTable (t : Table) : Except String RootRequire := do
     | other, _ => unsupported := unsupported.push s!"`{other}`"
   return { name, git, rev, unsupportedFields := unsupported }
 
+/-- A pinned package available to solutions but forbidden in statement imports. -/
+structure SolutionDependency where
+  name : String
+  moduleRoots : Array String
+  deriving FromJson, Inhabited
+
+/-- Optional consumer policy; dependency pins remain in the root lakefile. -/
+def loadSolutionDependencies (root : System.FilePath) : IO (Array SolutionDependency) := do
+  let path := root / "solution-dependencies.json"
+  if !(← path.pathExists) then return #[]
+  IO.ofExcept <| (Json.parse (← IO.FS.readFile path)).bind fromJson?
+
 /-- The dependencies a generated workspace may require, read from the root
 lakefile: the mandatory `mathlib` pin, plus every other root `[[require]]` in
 root lakefile order. An extra require is only emitted into a workspace whose
-problem imports one of its modules; see `workspaceRequires`. -/
+problem imports one of its modules, or it is enabled for solutions; see `workspaceRequires`. -/
 structure RootDependencies where
   mathlib : DependencySpec
   extras : Array RootRequire := #[]
+  solutions : Array SolutionDependency := #[]
   deriving Inhabited
 
 /-- A bare `mathlib` pin is a complete dependency set with no extras, so
@@ -168,8 +181,9 @@ private def loadRootDependenciesCore (root : System.FilePath) (strictMathlib : B
 `rev` and no other fields, and every other require as written. Other requires
 are not validated here; a problem that selects one fails if it cannot be
 reproduced (see `RootRequire.toSpec`). -/
-def loadRootDependencies (root : System.FilePath) : IO RootDependencies :=
-  loadRootDependenciesCore root (strictMathlib := true)
+def loadRootDependencies (root : System.FilePath) : IO RootDependencies := do
+  return { (← loadRootDependenciesCore root (strictMathlib := true)) with
+    solutions := ← loadSolutionDependencies root }
 
 /-- The root `mathlib` pin. Unlike `loadRootDependencies`, this ignores
 fields beyond `name`, `git` and `rev`, as it always has. -/
@@ -1358,7 +1372,8 @@ been followed): each extra root require whose `name` equals the first
 component of some imported module, in root lakefile order, followed by
 `mathlib`. For example `import TauCeti.Foo.Bar` selects the require named
 `TauCeti`. Tooling requires in the root lakefile are never selected, because
-no problem imports them. Fails if a selected require cannot be reproduced.
+no problem imports them. Solution dependencies are always included, but their
+module roots are forbidden in statements. Fails if a selected require cannot be reproduced.
 
 Known limitation: a package whose library root differs from its package name
 (say package `foo-bar` providing modules `FooBar.*`) is not matched. Its
@@ -1371,11 +1386,21 @@ putting an extra package after Mathlib would make `lake update` pick up that
 package's (typically older) pins instead of Mathlib's. -/
 def workspaceRequires (deps : RootDependencies) (imports : Array String) :
     Except String (Array DependencySpec) := do
+  for dep in deps.solutions do
+    unless (deps.extras.filter (·.name == dep.name)).size == 1 do
+      throw s!"Solution dependency '{dep.name}' must name exactly one non-mathlib root require"
+    if dep.moduleRoots.isEmpty || dep.moduleRoots.any String.isEmpty then
+      throw s!"Solution dependency '{dep.name}' requires non-empty moduleRoots"
+    for imported in imports do
+      if dep.moduleRoots.any (fun root =>
+          (parseModuleName root).isPrefixOf (parseModuleName imported)) then
+        throw s!"Problem statements may not import solution-only module '{imported}'"
   let roots : Std.HashSet String := imports.foldl (init := {}) fun acc m =>
     match (splitNameComponents m)[0]? with
     | some r => acc.insert r
     | none => acc
-  let selected ← (deps.extras.filter fun r => roots.contains r.name).mapM (·.toSpec)
+  let selected ← (deps.extras.filter fun r =>
+    roots.contains r.name || deps.solutions.any (·.name == r.name)).mapM (·.toSpec)
   return selected.push deps.mathlib
 
 /-- `workspaceRequires` for the workspace generated from `moduleName`. -/
