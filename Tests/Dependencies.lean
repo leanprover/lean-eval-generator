@@ -35,12 +35,13 @@ private def requireBlock (name git rev : String) : String :=
 private def mathlibBlock : String :=
   requireBlock "mathlib" "https://github.com/leanprover-community/mathlib4.git" mathlibRev
 
-/-- The lakefile every Mathlib-only workspace had before extra requires
-existed, spelled out literally so any drift in its bytes is caught. -/
+/-- The Mathlib-only workspace configuration, spelled out literally so any
+drift in its bytes is caught. -/
 private def mathlibOnlyLakefile (problemId : String) : String :=
   s!"name = \"{problemId}\"\n" ++
   "testDriver = \"workspace_test\"\n" ++
-  "defaultTargets = [\"Challenge\", \"Solution\", \"Submission\"]\n\n" ++
+  "defaultTargets = [\"Challenge\", \"Solution\", \"Submission\"]\n" ++
+  "allowNonModules = true\n\n" ++
   "[leanOptions]\nautoImplicit = false\n\n" ++
   mathlibBlock ++
   "[[lean_lib]]\nname = \"Challenge\"\n\n" ++
