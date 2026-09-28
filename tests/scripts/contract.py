@@ -117,6 +117,66 @@ def check_extra_dependencies() -> None:
                 assert lakefile == baseline, lakefile
 
 
+def check_legacy_module_dependency() -> None:
+    """Build legacy workspace files importing a module-system dependency."""
+    with tempfile.TemporaryDirectory() as directory:
+        context = Path(directory)
+        pins = []
+        for name, library, source in [
+            ("mathlib", "Mathlib", ""),
+            ("modular", "Modular", "module\npublic theorem dependency_fact : True := True.intro\n"),
+        ]:
+            package = context / name
+            package.mkdir()
+            (package / "lakefile.toml").write_text(
+                f'name = "{name}"\nrequiresModuleSystem = {str(name == "modular").lower()}\n'
+                f'[[lean_lib]]\nname = "{library}"\n', encoding="utf-8"
+            )
+            (package / f"{library}.lean").write_text(source, encoding="utf-8")
+            subprocess.run(["git", "init", "-q", str(package)], check=True)
+            subprocess.run(["git", "-C", str(package), "add", "."], check=True)
+            subprocess.run([
+                "git", "-C", str(package), "-c", "user.name=Test Fixture",
+                "-c", "user.email=fixture@example.invalid", "commit", "-qm", "fixture",
+            ], check=True)
+            rev = subprocess.check_output(
+                ["git", "-C", str(package), "rev-parse", "HEAD"], text=True
+            ).strip()
+            pins.append({"name": name, "git": package.as_uri(), "rev": rev})
+        content = "theorem fixture : True := by sorry\n"
+        (context / "Fixture.lean").write_text(content, encoding="utf-8")
+        ilean = context / ".lake/build/lib/lean"
+        ilean.mkdir(parents=True)
+        (ilean / "Fixture.ilean").write_text('{"decls": {}}', encoding="utf-8")
+        (context / "solution-dependencies.json").write_text(
+            '[{"name":"modular","moduleRoots":["Modular"]}]', encoding="utf-8"
+        )
+        fixture = problem()
+        fixture["resolvedHoles"][0]["declarationName"] = "fixture"
+        payload = request_with(fixture)
+        payload["contextRoot"] = str(context)
+        payload["mathlib"] = pins[0]
+        payload["dependencies"] = pins[1:]
+        workspace = context / "workspace"
+        workspace.mkdir()
+        (workspace / "lakefile.toml").write_text(lakefile_for(payload), encoding="utf-8")
+        (workspace / "lean-toolchain").write_text(
+            (ROOT / "lean-toolchain").read_text(encoding="utf-8"), encoding="utf-8"
+        )
+        (workspace / "Submission.lean").write_text(
+            "import Modular\ntheorem submitted : True := dependency_fact\n", encoding="utf-8"
+        )
+        (workspace / "Solution.lean").write_text(
+            "import Submission\ntheorem verified : True := submitted\n", encoding="utf-8"
+        )
+        subprocess.run(["lake", "update"], cwd=workspace, check=True, capture_output=True)
+        result = subprocess.run(
+            ["lake", "build", "Solution"], cwd=workspace, text=True, capture_output=True
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert "warning:" not in result.stdout + result.stderr, result.stdout + result.stderr
+
+
 def main() -> int:
     subprocess.run(["lake", "build"], cwd=ROOT, check=True)
     subprocess.run(
@@ -216,6 +276,7 @@ def main() -> int:
         assert_rejected(request_with(invalid_id), "is invalid")
 
     check_extra_dependencies()
+    check_legacy_module_dependency()
 
     print("PASS schema errors stay off stdout and quoted source/ilean paths resolve")
     return 0

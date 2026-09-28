@@ -3060,7 +3060,9 @@ def lakefileToml (problemId : String) (workspaceDeps : Array DependencySpec)
     s!"rev = {tomlBasicString dep.rev}\n\n"
   s!"name = {tomlBasicString problemId}\n" ++
   "testDriver = \"workspace_test\"\n" ++
-  "defaultTargets = [\"Challenge\", \"Solution\", \"Submission\"]\n\n" ++
+  "defaultTargets = [\"Challenge\", \"Solution\", \"Submission\"]\n" ++
+  -- Workspace files intentionally use the legacy visibility rules.
+  "allowNonModules = true\n\n" ++
   "[leanOptions]\n" ++
   "autoImplicit = false\n\n" ++
   requireBlocks ++
