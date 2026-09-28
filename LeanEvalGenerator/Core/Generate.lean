@@ -67,7 +67,7 @@ def RootRequire.ofSpec (spec : DependencySpec) : RootRequire :=
   { name := spec.name, git := some spec.git, rev := some spec.rev }
 
 private def nonEmptyTrimmed? (value? : Option String) : Option String :=
-  value?.bind fun v => let v := v.trim; if v.isEmpty then none else some v
+  value?.bind fun v => let v := v.trimAscii.toString; if v.isEmpty then none else some v
 
 /-- The `[[require]]` to emit for a selected root require, or an explanation of
 why a standalone workspace cannot reproduce it. -/
@@ -1851,8 +1851,8 @@ def injectSolutionHoleModifiers (signature basename : String) : Option String :=
     if trimmed == noncomputableKw then
       ""
     else if trimmed.endsWith noncomputableKw &&
-        (trimmed.dropRight noncomputableKw.length).back.isWhitespace then
-      trimmed.dropRight noncomputableKw.length
+        (trimmed.dropEnd noncomputableKw.length).toString.back.isWhitespace then
+      (trimmed.dropEnd noncomputableKw.length).toString
     else
       prefixText
   let trimmedPrefix := prefixText.trimAsciiEnd.toString
@@ -2919,7 +2919,7 @@ def buildHolesMetadata (root : System.FilePath) (entry : EvalProblemMetadata)
     let startOff ← src.offsetForLineColumn e.startLine e.startColumn
     let endOff ← src.offsetForLineColumn e.endLine e.endColumn
     let bodyRaw := Source.slice src startOff endOff
-    let body := (stripProblemMarkers bodyRaw).trim
+    let body := (stripProblemMarkers bodyRaw).trimAscii.toString
     holes := holes.push <| ojObj #[
       ("name", ojStr e.declarationName),
       ("basename", ojStr (lastComponentStr e.declarationName)),
